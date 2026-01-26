@@ -1,12 +1,13 @@
 "use client";
 
 import React from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Home, Upload, Settings, CheckCircle, FileText, LogOut } from "lucide-react";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Home, Upload, Settings, CheckCircle, FileText, LogOut, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { supabase } from "@/lib/supabase"; // Importar o cliente Supabase
+import { supabase } from "@/lib/supabase";
+import { useSession } from "@/components/auth/SessionContextProvider";
 import { showError } from "@/utils/toast";
 
 const navItems = [
@@ -19,56 +20,77 @@ const navItems = [
 
 const Sidebar = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { user } = useSession();
 
   const handleLogout = async () => {
     const { error } = await supabase.auth.signOut();
     if (error) {
-      console.error("Erro ao fazer logout:", error.message);
-      showError("Erro ao fazer logout. Tente novamente.");
+      showError("Erro ao fazer logout.");
     } else {
-      navigate("/login"); // Redireciona para a página de login após o logout
+      navigate("/login");
     }
   };
 
   return (
-    <aside className="h-full w-64 bg-sidebar-background text-sidebar-foreground p-4 flex flex-col rounded-r-xl shadow-lg">
-      <div className="mb-8 text-center">
-        <h2 className="text-2xl font-bold text-sidebar-primary-foreground">Conciliação Bancária</h2>
+    <aside className="h-full w-72 bg-sidebar-background text-sidebar-foreground p-6 flex flex-col rounded-r-3xl shadow-2xl border-r border-sidebar-border/30">
+      <div className="mb-10 px-2">
+        <h2 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
+          <div className="h-8 w-8 bg-white rounded-lg flex items-center justify-center">
+            <div className="h-4 w-4 bg-sidebar-background rounded-sm" />
+          </div>
+          CONCILIA
+        </h2>
       </div>
-      <ScrollArea className="flex-grow">
-        <nav className="space-y-2">
-          {navItems.map((item) => (
-            <Link key={item.name} to={item.path}>
-              <Button
-                variant="ghost"
-                className={cn(
-                  "w-full justify-start text-lg py-6 px-4 rounded-lg transition-all duration-200",
-                  "hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
-                  "focus:bg-sidebar-accent focus:text-sidebar-accent-foreground"
-                )}
-              >
-                <item.icon className="mr-3 h-6 w-6" />
-                {item.name}
-              </Button>
-            </Link>
-          ))}
+
+      <ScrollArea className="flex-grow -mx-2 px-2">
+        <nav className="space-y-1">
+          {navItems.map((item) => {
+            const isActive = location.pathname === item.path;
+            return (
+              <Link key={item.name} to={item.path}>
+                <Button
+                  variant="ghost"
+                  className={cn(
+                    "w-full justify-start text-base font-medium py-6 px-4 rounded-xl transition-all duration-200 group mb-1",
+                    isActive 
+                      ? "bg-white/15 text-white shadow-sm" 
+                      : "text-sidebar-foreground/70 hover:bg-white/10 hover:text-white"
+                  )}
+                >
+                  <item.icon className={cn(
+                    "mr-3 h-5 w-5 transition-transform group-hover:scale-110",
+                    isActive ? "text-white" : "text-sidebar-foreground/50 group-hover:text-white"
+                  )} />
+                  {item.name}
+                </Button>
+              </Link>
+            );
+          })}
         </nav>
       </ScrollArea>
-      <div className="mt-auto p-4">
+
+      <div className="mt-auto pt-6 border-t border-white/10">
+        <div className="flex items-center gap-3 px-3 mb-6">
+          <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center text-white ring-2 ring-white/5">
+            <User size={20} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-white truncate">{user?.email?.split('@')[0]}</p>
+            <p className="text-xs text-white/50 truncate">{user?.email}</p>
+          </div>
+        </div>
+
         <Button
           variant="ghost"
           onClick={handleLogout}
-          className={cn(
-            "w-full justify-start text-lg py-6 px-4 rounded-lg transition-all duration-200",
-            "hover:bg-destructive hover:text-destructive-foreground",
-            "focus:bg-destructive focus:text-destructive-foreground"
-          )}
+          className="w-full justify-start text-sm font-semibold py-5 px-4 rounded-xl text-white/70 hover:bg-destructive/20 hover:text-white transition-colors"
         >
-          <LogOut className="mr-3 h-6 w-6" />
-          Sair
+          <LogOut className="mr-3 h-5 w-5" />
+          Sair da Conta
         </Button>
-        <div className="text-center text-sm text-gray-500 mt-4">
-          © 2024 Dyad
+        <div className="text-center text-[10px] uppercase tracking-widest text-white/30 mt-6 font-bold">
+          v1.0.0 • Powered by Dyad
         </div>
       </div>
     </aside>
