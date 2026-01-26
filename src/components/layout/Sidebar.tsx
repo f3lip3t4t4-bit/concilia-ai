@@ -18,7 +18,12 @@ const navItems = [
   { name: "Relatórios", icon: FileText, path: "/reports" },
 ];
 
-const Sidebar = () => {
+interface SidebarProps {
+  isMobile?: boolean;
+  onAction?: () => void;
+}
+
+const Sidebar = ({ isMobile, onAction }: SidebarProps) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useSession();
@@ -28,27 +33,33 @@ const Sidebar = () => {
     if (error) {
       showError("Erro ao fazer logout.");
     } else {
+      if (onAction) onAction();
       navigate("/login");
     }
   };
 
-  return (
-    <aside className="h-screen sticky top-0 w-72 bg-sidebar text-sidebar-foreground p-6 flex flex-col rounded-r-3xl shadow-2xl border-r border-sidebar-border/30 flex-shrink-0">
-      <div className="mb-10 px-2">
-        <h2 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
-          <div className="h-8 w-8 bg-white rounded-lg flex items-center justify-center">
-            <div className="h-4 w-4 bg-sidebar rounded-sm" />
-          </div>
-          CONCILIA
-        </h2>
-      </div>
+  const content = (
+    <div className={cn(
+      "flex flex-col h-full",
+      isMobile ? "p-4" : "p-6"
+    )}>
+      {!isMobile && (
+        <div className="mb-10 px-2">
+          <h2 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
+            <div className="h-8 w-8 bg-white rounded-lg flex items-center justify-center">
+              <div className="h-4 w-4 bg-sidebar rounded-sm" />
+            </div>
+            CONCILIA
+          </h2>
+        </div>
+      )}
 
       <ScrollArea className="flex-grow -mx-2 px-2">
         <nav className="space-y-1">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
-              <Link key={item.name} to={item.path}>
+              <Link key={item.name} to={item.path} onClick={onAction}>
                 <Button
                   variant="ghost"
                   className={cn(
@@ -90,6 +101,14 @@ const Sidebar = () => {
           Sair da Conta
         </Button>
       </div>
+    </div>
+  );
+
+  if (isMobile) return content;
+
+  return (
+    <aside className="h-screen sticky top-0 w-72 bg-sidebar text-sidebar-foreground flex flex-col rounded-r-3xl shadow-2xl border-r border-sidebar-border/30 flex-shrink-0">
+      {content}
     </aside>
   );
 };
