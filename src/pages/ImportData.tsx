@@ -58,39 +58,28 @@ const ImportData = () => {
 
   const formatDate = (val: any) => {
     if (!val) return null;
-    
-    let d: Date;
-    
-    // Se for objeto Date do Excel
     if (val instanceof Date) {
-      d = val;
-    } 
-    // Se for string no formato brasileiro DD/MM/YYYY
-    else if (typeof val === 'string' && val.includes('/')) {
+      const year = val.getUTCFullYear();
+      const month = String(val.getUTCMonth() + 1).padStart(2, '0');
+      const day = String(val.getUTCDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    if (typeof val === 'string' && val.includes('/')) {
       const parts = val.split('/');
       if (parts.length === 3) {
-        const day = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10) - 1;
-        const year = parts[2].length === 2 ? 2000 + parseInt(parts[2], 10) : parseInt(parts[2], 10);
-        d = new Date(year, month, day);
-      } else {
-        d = new Date(val);
+        const day = parts[0].padStart(2, '0');
+        const month = parts[1].padStart(2, '0');
+        const year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+        return `${year}-${month}-${day}`;
       }
-    } else {
-      d = new Date(val);
     }
-
-    if (isNaN(d.getTime())) return null;
-
-    // CORREÇÃO CRÍTICA: Adicionamos 12 horas para garantir que o fuso horário (ex: UTC-3)
-    // não jogue a data para o dia anterior se ela estiver marcada como meia-noite.
-    const adjustedDate = new Date(d.getTime() + (12 * 60 * 60 * 1000));
-    
-    const year = adjustedDate.getFullYear();
-    const month = String(adjustedDate.getMonth() + 1).padStart(2, '0');
-    const day = String(adjustedDate.getDate()).padStart(2, '0');
-    
-    return `${year}-${month}-${day}`;
+    try {
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) {
+        return d.toISOString().split('T')[0];
+      }
+    } catch (e) {}
+    return null;
   };
 
   const parseAmount = (val: any) => {
@@ -188,6 +177,7 @@ const ImportData = () => {
       setBankStatementFile(null);
       setFinancialEntriesFile(null);
       
+      // Redireciona automaticamente após o sucesso
       navigate("/reconciliation");
     } catch (error: any) {
       showError(`Erro: ${error.message}`);
@@ -304,7 +294,7 @@ const ImportData = () => {
           <Info className="h-5 w-5 text-blue-600" />
           <AlertTitle className="font-bold mb-2">Dica de Precisão:</AlertTitle>
           <AlertDescription>
-            Ajustamos o motor de importação para ler valores no formato brasileiro (ex: 1.234,56) e corrigimos o problema de fuso horário nas datas.
+            Ajustamos o motor de importação para ler valores no formato brasileiro (ex: 1.234,56) e datas exatas do Excel. Se o erro persistir, certifique-se de que o arquivo não possui células mescladas no cabeçalho.
           </AlertDescription>
         </Alert>
       </div>
