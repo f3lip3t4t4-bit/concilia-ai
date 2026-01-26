@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UploadCloud, FileText, Loader2, Trash2, Info, Building2 } from "lucide-react";
+import { Building2, Loader2, Trash2, Info } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/components/auth/SessionContextProvider";
@@ -42,7 +42,6 @@ const ImportData = () => {
       reader.onload = (e) => {
         try {
           const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          // cellDates: true converte para Date, mas o fuso horário pode atrapalhar
           const workbook = XLSX.read(data, { type: "array", cellDates: true });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
@@ -59,14 +58,9 @@ const ImportData = () => {
 
   const formatDate = (val: any) => {
     if (!val) return null;
-    
     let d: Date;
-    
     if (val instanceof Date) {
-      // Se for Date, adicionamos algumas horas para garantir que a extração UTC não caia no dia anterior
-      // Isso resolve o problema de datas como 01/10/2025 aparecendo como 30/09/2025
       d = new Date(val.getTime() + (val.getTimezoneOffset() * 60000));
-      // Adicionalmente, forçamos o meio do dia para evitar bordas de meia-noite
       d.setHours(12, 0, 0, 0);
     } else if (typeof val === 'string' && val.includes('/')) {
       const parts = val.split('/');
@@ -80,13 +74,10 @@ const ImportData = () => {
     } else {
       d = new Date(val);
     }
-
     if (isNaN(d.getTime())) return null;
-
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    
     return `${year}-${month}-${day}`;
   };
 
@@ -104,11 +95,38 @@ const ImportData = () => {
     return isNaN(num) ? 0 : num;
   };
 
-  const processRowsAsArrays = (rows: any[][], userId: string, type: string) => {
+  const processInternalSystemRows = (rows: any[][], userId: string) => {
+    // Conforme solicitado, cabeçalho inicia na célula A2 (índice 1 do array)
+    // Colunas: Data(0), Fazenda(1), Conta(2), Natureza(3), Grupo(4), Sub Grupo(5), Tp Dcto(6), Histórico(7), Num Dcto(8), Entrada(9), Saída(10)
+    if (rows.length < 2) return [];
+
+    return rows.slice(2) // Pula as 2 primeiras linhas (título e cabeçalho)
+      .map(row => {
+        const date = formatDate(row[0]);
+        const history = String(row[7] || "").trim();
+        const entrada = parseAmount(row[9]);
+        const saida = parseAmount(row[10]);
+        
+        // Se tiver entrada, valor positivo. Se tiver saída, valor negativo.
+        const amount = entrada !== 0 ? Math.abs(entrada) : (saida !== 0 ? -Math.abs(saida) : 0);
+
+        if (!date || !history || amount === 0) return null;
+
+        return {
+          user_id: userId,
+          date,
+          description: history,
+          amount,
+        };
+      })
+      .filter(item => item !== null);
+  };
+
+  const processBankRows = (rows: any[][], userId: string, type: string) => {
     let headerIndex = -1;
     let colMap: Record<string, number> = {};
 
-    for (let i = 0; i < rows.length; i++) {
+    for (let i = 0; i < Math.min(rows.length, 10); i++) {
       const row = rows[i].map(c => String(c || "").toLowerCase().trim());
       if (type === "sicredi") {
         if (row.some(c => c === "data") && row.some(c => c.includes("descrição")) && row.some(c => c.includes("valor (r$)"))) {
@@ -162,10 +180,10 @@ const ImportData = () => {
     setIsUploading(true);
     try {
       const rawBankRows = await parseExcel(bankStatementFile);
-      const formattedBankData = processRowsAsArrays(rawBankRows, user.id, bankType);
+      const formattedBankData = processBankRows(rawBankRows, user.id, bankType);
 
       const rawFinRows = await parseExcel(financialEntriesFile);
-      const formattedFinancialData = processRowsAsArrays(rawFinRows, user.id, "padrao");
+      const formattedFinancialData = processInternalSystemRows(rawFinRows, user.id);
 
       if (formattedBankData.length === 0 && formattedFinancialData.length === 0) {
         throw new Error("Dados não identificados. Verifique se o modelo do banco selecionado está correto.");
@@ -184,7 +202,6 @@ const ImportData = () => {
       showSuccess(`Importados ${formattedBankData.length} itens bancários e ${formattedFinancialData.length} internos.`);
       setBankStatementFile(null);
       setFinancialEntriesFile(null);
-      
       navigate("/reconciliation");
     } catch (error: any) {
       showError(`Erro: ${error.message}`);
@@ -254,13 +271,14 @@ const ImportData = () => {
                 </div>
 
                 <div className="grid w-full items-center gap-3">
-                  <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">Arquivo Interno (.xlsx)</Label>
+                  <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">Relatório do Sistema (.xlsx)</Label>
                   <Input 
                     type="file" 
                     accept=".xlsx, .xls" 
                     onChange={handleFinancialEntriesChange} 
                     className="rounded-2xl h-16 bg-slate-50 border-slate-200 pt-4" 
                   />
+                  <p className="text-[10px] text-muted-foreground mt-1 px-2 italic">O sistema espera cabeçalho fixo na célula A2.</p>
                 </div>
               </div>
 
@@ -299,9 +317,10 @@ const ImportData = () => {
 
         <Alert className="rounded-2xl border-blue-200 bg-blue-50/50 text-blue-900">
           <Info className="h-5 w-5 text-blue-600" />
-          <AlertTitle className="font-bold mb-2">Dica de Precisão:</AlertTitle>
+          <AlertTitle className="font-bold mb-2">Padrão do Sistema Interno:</AlertTitle>
           <AlertDescription>
-            Ajustamos o motor de importação para ler valores no formato brasileiro (ex: 1.234,56) e datas exatas do Excel. Se o erro persistir, certifique-se de que o arquivo não possui células mescladas no cabeçalho.
+            Configurado para colunas: Data(A), Histórico(H), Entrada(J) e Saída(K).<br/>
+            <strong>Dica:</strong> Saídas são convertidas automaticamente para valores negativos para bater com o extrato.
           </AlertDescription>
         </Alert>
       </div>

@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
-import { CheckCircle, AlertCircle, HelpCircle, Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap, Search } from "lucide-react";
+import { Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/components/auth/SessionContextProvider";
 import { showSuccess, showError } from "@/utils/toast";
@@ -40,7 +40,6 @@ const Reconciliation = () => {
     setLoading(true);
     try {
       const [bankRes, finRes, matchRes, ruleRes] = await Promise.all([
-        // Ordenado de forma ascendente (mais antigo primeiro)
         supabase.from("bank_statements").select("*").eq("user_id", user.id).order("date", { ascending: true }),
         supabase.from("financial_entries").select("*").eq("user_id", user.id).order("date", { ascending: true }),
         supabase.from("reconciliation_matches").select("*").eq("user_id", user.id),
@@ -50,12 +49,7 @@ const Reconciliation = () => {
       setBankEntries(bankRes.data || []);
       setFinEntries(finRes.data || []);
       setMatches(matchRes.data || []);
-      
-      if (ruleRes.data) {
-        setRules(ruleRes.data);
-      } else {
-        setRules({ value_tolerance: 0.05, date_tolerance_days: 1 });
-      }
+      setRules(ruleRes.data || { value_tolerance: 0.05, date_tolerance_days: 1 });
     } catch (error: any) {
       showError("Erro ao carregar dados: " + error.message);
     } finally {
@@ -74,7 +68,6 @@ const Reconciliation = () => {
 
   const handleManualMatch = async () => {
     if (!selectedBankId || !selectedFinId || !user) return;
-
     try {
       const { error } = await supabase.from("reconciliation_matches").insert({
         user_id: user.id,
@@ -82,10 +75,8 @@ const Reconciliation = () => {
         financial_entry_id: selectedFinId,
         match_type: "manual"
       });
-
       if (error) throw error;
-
-      showSuccess("Conciliação manual realizada!");
+      showSuccess("Conciliação realizada!");
       setSelectedBankId(null);
       setSelectedFinId(null);
       fetchData();
@@ -102,20 +93,20 @@ const Reconciliation = () => {
     const unmatchedFin = finEntries.filter(e => !isMatched(e.id, "fin"));
     
     const newMatches: any[] = [];
+    const usedFinIds = new Set<string>();
+
     const valTol = Number(rules.value_tolerance || 0.05);
     const dateTol = Number(rules.date_tolerance_days || 1);
 
+    // 1. Tentar conciliação 1:1 exata primeiro
     unmatchedBank.forEach(b => {
       const bDate = new Date(b.date);
-      
       const match = unmatchedFin.find(f => {
-        if (newMatches.some(nm => nm.financial_entry_id === f.id)) return false;
-        
+        if (usedFinIds.has(f.id)) return false;
         const fDate = new Date(f.date);
         const diffTime = Math.abs(bDate.getTime() - fDate.getTime());
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         const diffAmount = Math.abs(Number(b.amount) - Number(f.amount));
-
         return diffDays <= dateTol && diffAmount <= valTol;
       });
 
@@ -126,11 +117,59 @@ const Reconciliation = () => {
           financial_entry_id: match.id,
           match_type: "exact"
         });
+        usedFinIds.add(match.id);
+      }
+    });
+
+    // 2. Lógica de Agrupamento: Soma de NFs para o mesmo lançamento bancário
+    // Só tentamos nos itens bancários que ainda não foram casados no passo 1
+    const stillUnmatchedBank = unmatchedBank.filter(b => !newMatches.some(m => m.bank_statement_id === b.id));
+    
+    stillUnmatchedBank.forEach(b => {
+      const bDate = new Date(b.date);
+      const bDesc = b.description.toLowerCase();
+
+      // Encontrar todos os lançamentos internos da mesma data que não foram usados
+      const candidates = unmatchedFin.filter(f => {
+        if (usedFinIds.has(f.id)) return false;
+        const fDate = new Date(f.date);
+        return fDate.getTime() === bDate.getTime();
+      });
+
+      // Agrupar candidatos pelo fornecedor (antes do '|')
+      const groups: Record<string, Entry[]> = {};
+      candidates.forEach(f => {
+        const vendor = f.description.split('|')[0].trim().toLowerCase();
+        if (!groups[vendor]) groups[vendor] = [];
+        groups[vendor].push(f);
+      });
+
+      // Verificar se a soma de algum grupo bate com o valor do extrato
+      for (const vendor in groups) {
+        const groupItems = groups[vendor];
+        const sumAmount = groupItems.reduce((acc, curr) => acc + Number(curr.amount), 0);
+        
+        // Se o nome do fornecedor aparece na descrição do banco e o valor bate
+        if (bDesc.includes(vendor) || vendor.includes(bDesc)) {
+          if (Math.abs(sumAmount - Number(b.amount)) <= valTol) {
+            // Conciliar cada item do grupo com este lançamento bancário
+            groupItems.forEach(item => {
+              newMatches.push({
+                user_id: user.id,
+                bank_statement_id: b.id,
+                financial_entry_id: item.id,
+                match_type: "group_sum"
+              });
+              usedFinIds.add(item.id);
+            });
+            break; // Já casamos este item bancário
+          }
+        }
       }
     });
 
     if (newMatches.length === 0) {
-      showError("Nenhum novo batimento encontrado com as regras atuais.");
+      showError("Nenhum novo batimento encontrado.");
       setIsProcessing(false);
       return;
     }
@@ -138,7 +177,7 @@ const Reconciliation = () => {
     try {
       const { error } = await supabase.from("reconciliation_matches").insert(newMatches);
       if (error) throw error;
-      showSuccess(`${newMatches.length} conciliações automáticas realizadas!`);
+      showSuccess(`${newMatches.length} conciliações realizadas!`);
       fetchData();
     } catch (error: any) {
       showError("Erro na conciliação automática: " + error.message);
@@ -191,7 +230,7 @@ const Reconciliation = () => {
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-3xl font-black text-primary tracking-tight">Conciliação Ativa</h1>
-            <p className="text-muted-foreground">Analise dados reais e realize o batimento inteligente.</p>
+            <p className="text-muted-foreground">Motor inteligente com suporte a agrupamento de NFs por fornecedor.</p>
           </div>
           <div className="flex gap-2 w-full md:w-auto">
             <Button onClick={fetchData} variant="outline" size="sm" className="rounded-xl">
@@ -292,7 +331,7 @@ const Reconciliation = () => {
                   <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                     <TableRow>
                       <TableHead className="w-24 pl-6">Data</TableHead>
-                      <TableHead>Descrição</TableHead>
+                      <TableHead>Descrição (Fornecedor | Detalhe)</TableHead>
                       <TableHead className="text-right pr-6">Valor</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -304,7 +343,9 @@ const Reconciliation = () => {
                         onClick={() => setSelectedFinId(selectedFinId === entry.id ? null : entry.id)}
                       >
                         <TableCell className="text-sm pl-6">{new Date(entry.date).toLocaleDateString('pt-BR')}</TableCell>
-                        <TableCell className="font-semibold text-slate-700">{entry.description}</TableCell>
+                        <TableCell className="font-semibold text-slate-700">
+                          {entry.description}
+                        </TableCell>
                         <TableCell className="text-right font-black text-emerald-600 pr-6">{formatCurrency(entry.amount)}</TableCell>
                       </TableRow>
                     ))}
@@ -364,7 +405,7 @@ const Reconciliation = () => {
                           </TableCell>
                           <TableCell className="py-4">
                             <Badge variant={m.match_type === 'manual' ? 'outline' : 'secondary'} className="rounded-lg font-bold">
-                              {m.match_type === 'manual' ? 'Manual' : 'Automático'}
+                              {m.match_type === 'manual' ? 'Manual' : (m.match_type === 'group_sum' ? 'Agrupado' : 'Automático')}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right pr-6 py-4">
@@ -380,9 +421,6 @@ const Reconciliation = () => {
                         </TableRow>
                       );
                     })}
-                    {matches.length === 0 && (
-                      <TableRow><TableCell colSpan={4} className="text-center py-12 text-muted-foreground">Nenhuma conciliação realizada ainda.</TableCell></TableRow>
-                    )}
                   </TableBody>
                 </Table>
               </CardContent>
