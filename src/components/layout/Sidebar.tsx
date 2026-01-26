@@ -33,11 +33,11 @@ const Sidebar = () => {
   };
 
   return (
-    <aside className="h-full w-72 bg-sidebar-background text-sidebar-foreground p-6 flex flex-col rounded-r-3xl shadow-2xl border-r border-sidebar-border/30">
+    <aside className="h-screen sticky top-0 w-72 bg-sidebar text-sidebar-foreground p-6 flex flex-col rounded-r-3xl shadow-2xl border-r border-sidebar-border/30 flex-shrink-0">
       <div className="mb-10 px-2">
         <h2 className="text-2xl font-black tracking-tight text-white flex items-center gap-2">
           <div className="h-8 w-8 bg-white rounded-lg flex items-center justify-center">
-            <div className="h-4 w-4 bg-sidebar-background rounded-sm" />
+            <div className="h-4 w-4 bg-sidebar rounded-sm" />
           </div>
           CONCILIA
         </h2>
@@ -89,9 +89,6 @@ const Sidebar = () => {
           <LogOut className="mr-3 h-5 w-5" />
           Sair da Conta
         </Button>
-        <div className="text-center text-[10px] uppercase tracking-widest text-white/30 mt-6 font-bold">
-          v1.0.0 • Powered by Dyad
-        </div>
       </div>
     </aside>
   );

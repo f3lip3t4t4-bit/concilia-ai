@@ -45,7 +45,13 @@ const Reconciliation = () => {
       setBankEntries(bankRes.data || []);
       setFinEntries(finRes.data || []);
       setMatches(matchRes.data || []);
-      if (ruleRes.data) setRules(ruleRes.data);
+      
+      // Garante que rules sempre tenha valores padrão
+      if (ruleRes.data) {
+        setRules(ruleRes.data);
+      } else {
+        setRules({ value_tolerance: 0.05, date_tolerance_days: 1 });
+      }
     } catch (error: any) {
       showError("Erro ao carregar dados: " + error.message);
     } finally {
@@ -85,22 +91,20 @@ const Reconciliation = () => {
   };
 
   const handleAutoReconcile = async () => {
-    if (!user) return;
+    if (!user || !rules) return;
     setIsProcessing(true);
     
     const unmatchedBank = bankEntries.filter(e => !isMatched(e.id, "bank"));
     const unmatchedFin = finEntries.filter(e => !isMatched(e.id, "fin"));
     
     const newMatches: any[] = [];
-    const valTol = Number(rules.value_tolerance);
-    const dateTol = Number(rules.date_tolerance_days);
+    const valTol = Number(rules.value_tolerance || 0.05);
+    const dateTol = Number(rules.date_tolerance_days || 1);
 
-    // Algoritmo simples de cruzamento
     unmatchedBank.forEach(b => {
       const bDate = new Date(b.date);
       
       const match = unmatchedFin.find(f => {
-        // Verifica se já foi selecionado nesta rodada
         if (newMatches.some(nm => nm.financial_entry_id === f.id)) return false;
         
         const fDate = new Date(f.date);
@@ -122,7 +126,7 @@ const Reconciliation = () => {
     });
 
     if (newMatches.length === 0) {
-      showError("Nenhum novo batimento encontrado com as regras atuais.");
+      showError("Nenhum novo batimento encontrado.");
       setIsProcessing(false);
       return;
     }
@@ -191,7 +195,6 @@ const Reconciliation = () => {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Lado do Banco */}
           <Card className="border-none shadow-md overflow-hidden">
             <CardHeader className="bg-blue-600 text-white p-4">
               <CardTitle className="text-lg flex items-center justify-between">
@@ -224,7 +227,7 @@ const Reconciliation = () => {
                       </TableRow>
                     ))}
                     {unmatchedBank.length === 0 && (
-                      <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground italic">Tudo conciliado deste lado!</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground italic">Tudo conciliado!</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -232,7 +235,6 @@ const Reconciliation = () => {
             </CardContent>
           </Card>
 
-          {/* Lado Financeiro */}
           <Card className="border-none shadow-md overflow-hidden">
             <CardHeader className="bg-emerald-600 text-white p-4">
               <CardTitle className="text-lg flex items-center justify-between">
@@ -265,7 +267,7 @@ const Reconciliation = () => {
                       </TableRow>
                     ))}
                     {unmatchedFin.length === 0 && (
-                      <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground italic">Sem pendências internas.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground italic">Sem pendências.</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -274,7 +276,6 @@ const Reconciliation = () => {
           </Card>
         </div>
 
-        {/* Ação de Conciliação Manual */}
         <div className="flex justify-center py-4">
           <Button 
             size="lg" 
@@ -287,7 +288,6 @@ const Reconciliation = () => {
           </Button>
         </div>
 
-        {/* Lista de Conciliados */}
         <Tabs defaultValue="matched" className="w-full">
           <TabsList className="bg-muted p-1 rounded-xl mb-4">
             <TabsTrigger value="matched" className="px-6 py-2 rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm">
@@ -300,8 +300,8 @@ const Reconciliation = () => {
                 <Table>
                   <TableHeader className="bg-muted/50">
                     <TableRow>
-                      <TableHead>Banco (Referência)</TableHead>
-                      <TableHead>Financeiro (Referência)</TableHead>
+                      <TableHead>Banco</TableHead>
+                      <TableHead>Financeiro</TableHead>
                       <TableHead>Método</TableHead>
                       <TableHead className="text-right">Ação</TableHead>
                     </TableRow>
@@ -311,17 +311,17 @@ const Reconciliation = () => {
                       const b = bankEntries.find(e => e.id === m.bank_statement_id);
                       const f = finEntries.find(e => e.id === m.financial_entry_id);
                       return (
-                        <TableRow key={m.id} className="hover:bg-muted/30">
+                        <TableRow key={m.id}>
                           <TableCell>
                             <div className="font-medium">{b?.description || "N/A"}</div>
-                            <div className="text-xs text-muted-foreground">{new Date(b?.date || "").toLocaleDateString('pt-BR')} • {formatCurrency(b?.amount || 0)}</div>
+                            <div className="text-xs text-muted-foreground">{formatCurrency(b?.amount || 0)}</div>
                           </TableCell>
                           <TableCell>
                             <div className="font-medium">{f?.description || "N/A"}</div>
-                            <div className="text-xs text-muted-foreground">{new Date(f?.date || "").toLocaleDateString('pt-BR')} • {formatCurrency(f?.amount || 0)}</div>
+                            <div className="text-xs text-muted-foreground">{formatCurrency(f?.amount || 0)}</div>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={m.match_type === 'manual' ? 'outline' : 'secondary'} className="capitalize">
+                            <Badge variant={m.match_type === 'manual' ? 'outline' : 'secondary'}>
                               {m.match_type === 'manual' ? 'Manual' : 'Automático'}
                             </Badge>
                           </TableCell>
@@ -330,7 +330,7 @@ const Reconciliation = () => {
                               variant="ghost" 
                               size="icon" 
                               onClick={() => handleUnmatch(m.id)}
-                              className="text-destructive hover:bg-destructive/10"
+                              className="text-destructive"
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -338,9 +338,6 @@ const Reconciliation = () => {
                         </TableRow>
                       );
                     })}
-                    {matches.length === 0 && (
-                      <TableRow><TableCell colSpan={4} className="text-center py-12 text-muted-foreground">Nenhuma conciliação efetuada até o momento.</TableCell></TableRow>
-                    )}
                   </TableBody>
                 </Table>
               </CardContent>
