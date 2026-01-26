@@ -13,9 +13,11 @@ import { supabase } from "@/lib/supabase";
 import { useSession } from "@/components/auth/SessionContextProvider";
 import * as XLSX from "xlsx";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useNavigate } from "react-router-dom";
 
 const ImportData = () => {
   const { user } = useSession();
+  const navigate = useNavigate();
   const [bankType, setBankType] = useState("padrao");
   const [bankStatementFile, setBankStatementFile] = useState<File | null>(null);
   const [financialEntriesFile, setFinancialEntriesFile] = useState<File | null>(null);
@@ -40,7 +42,6 @@ const ImportData = () => {
       reader.onload = (e) => {
         try {
           const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          // cellDates: true ajuda a converter datas do Excel em objetos Date JS
           const workbook = XLSX.read(data, { type: "array", cellDates: true, dateNF: 'yyyy-mm-dd' });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
@@ -57,17 +58,12 @@ const ImportData = () => {
 
   const formatDate = (val: any) => {
     if (!val) return null;
-    
-    // Se já for um objeto Date
     if (val instanceof Date) {
-      // Ajuste para evitar problemas de fuso horário (UTC vs Local)
       const year = val.getUTCFullYear();
       const month = String(val.getUTCMonth() + 1).padStart(2, '0');
       const day = String(val.getUTCDate()).padStart(2, '0');
       return `${year}-${month}-${day}`;
     }
-
-    // Se for string no formato DD/MM/YYYY
     if (typeof val === 'string' && val.includes('/')) {
       const parts = val.split('/');
       if (parts.length === 3) {
@@ -77,36 +73,25 @@ const ImportData = () => {
         return `${year}-${month}-${day}`;
       }
     }
-
-    // Tentativa genérica
     try {
       const d = new Date(val);
       if (!isNaN(d.getTime())) {
         return d.toISOString().split('T')[0];
       }
     } catch (e) {}
-
     return null;
   };
 
   const parseAmount = (val: any) => {
     if (typeof val === 'number') return val;
     if (!val) return 0;
-
     let str = String(val).trim();
-    // Remove "R$", "$" e espaços
     str = str.replace(/R\$/g, '').replace(/\$/g, '').replace(/\s/g, '');
-
-    // Lógica para formato brasileiro: 1.234,56 ou 1234,56
-    // Se tem vírgula e ponto, o ponto é milhar e a vírgula é decimal
     if (str.includes(',') && str.includes('.')) {
       str = str.replace(/\./g, '').replace(',', '.');
-    } 
-    // Se só tem vírgula, é decimal
-    else if (str.includes(',')) {
+    } else if (str.includes(',')) {
       str = str.replace(',', '.');
     }
-
     const num = parseFloat(str);
     return isNaN(num) ? 0 : num;
   };
@@ -117,7 +102,6 @@ const ImportData = () => {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i].map(c => String(c || "").toLowerCase().trim());
-      
       if (type === "sicredi") {
         if (row.some(c => c === "data") && row.some(c => c.includes("descrição")) && row.some(c => c.includes("valor (r$)"))) {
           headerIndex = i;
@@ -150,9 +134,7 @@ const ImportData = () => {
         const date = formatDate(row[colMap.date]);
         const description = String(row[colMap.desc] || "").trim();
         const amount = parseAmount(row[colMap.amount]);
-
         if (!date || !description || amount === 0) return null;
-
         return {
           user_id: userId,
           date,
@@ -194,6 +176,9 @@ const ImportData = () => {
       showSuccess(`Importados ${formattedBankData.length} itens bancários e ${formattedFinancialData.length} internos.`);
       setBankStatementFile(null);
       setFinancialEntriesFile(null);
+      
+      // Redireciona automaticamente após o sucesso
+      navigate("/reconciliation");
     } catch (error: any) {
       showError(`Erro: ${error.message}`);
     } finally {

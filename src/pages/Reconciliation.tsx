@@ -40,8 +40,9 @@ const Reconciliation = () => {
     setLoading(true);
     try {
       const [bankRes, finRes, matchRes, ruleRes] = await Promise.all([
-        supabase.from("bank_statements").select("*").eq("user_id", user.id).order("date", { ascending: false }),
-        supabase.from("financial_entries").select("*").eq("user_id", user.id).order("date", { ascending: false }),
+        // Ordenado de forma ascendente (mais antigo primeiro)
+        supabase.from("bank_statements").select("*").eq("user_id", user.id).order("date", { ascending: true }),
+        supabase.from("financial_entries").select("*").eq("user_id", user.id).order("date", { ascending: true }),
         supabase.from("reconciliation_matches").select("*").eq("user_id", user.id),
         supabase.from("reconciliation_rules").select("*").eq("user_id", user.id).maybeSingle()
       ]);
