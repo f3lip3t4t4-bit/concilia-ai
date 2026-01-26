@@ -6,7 +6,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import ImportData from "./pages/ImportData";
 import RulesPanel from "./pages/RulesPanel";
-import Reconciliation from "./pages/Reconciliation"; // Importar a nova página
+import Reconciliation from "./pages/Reconciliation";
+import Reports from "./pages/Reports"; // Importar a nova página
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -21,7 +22,8 @@ const App = () => (
           <Route path="/" element={<Index />} />
           <Route path="/import" element={<ImportData />} />
           <Route path="/rules" element={<RulesPanel />} />
-          <Route path="/reconciliation" element={<Reconciliation />} /> {/* Nova rota */}
+          <Route path="/reconciliation" element={<Reconciliation />} />
+          <Route path="/reports" element={<Reports />} /> {/* Nova rota */}
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

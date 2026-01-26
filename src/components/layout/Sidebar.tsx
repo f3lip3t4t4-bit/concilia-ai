@@ -12,7 +12,7 @@ const navItems = [
   { name: "Importar Dados", icon: Upload, path: "/import" },
   { name: "Painel de Regras", icon: Settings, path: "/rules" },
   { name: "Conciliação", icon: CheckCircle, path: "/reconciliation" },
-  { name: "Relatórios", icon: FileText, path: "/reports" },
+  { name: "Relatórios", icon: FileText, path: "/reports" }, // Adicionado o item de Relatórios
 ];
 
 const Sidebar = () => {
