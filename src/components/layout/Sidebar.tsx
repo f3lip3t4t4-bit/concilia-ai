@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { Home, Upload, Settings, CheckCircle, FileText, LogOut, User } from "lucide-react";
+import { Home, Upload, Settings, CheckCircle, FileText, LogOut, User, UserCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -82,15 +82,17 @@ const Sidebar = ({ isMobile, onAction }: SidebarProps) => {
       </ScrollArea>
 
       <div className="mt-auto pt-6 border-t border-white/10">
-        <div className="flex items-center gap-3 px-3 mb-6">
-          <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center text-white ring-2 ring-white/5">
-            <User size={20} />
+        <Link to="/profile" onClick={onAction} className="block mb-4">
+          <div className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white/10 transition-colors group">
+            <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center text-white ring-2 ring-white/5 group-hover:bg-white/20">
+              <UserCircle size={24} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-white truncate">Meu Perfil</p>
+              <p className="text-xs text-white/50 truncate">Configurações</p>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-white truncate">{user?.email?.split('@')[0]}</p>
-            <p className="text-xs text-white/50 truncate">{user?.email}</p>
-          </div>
-        </div>
+        </Link>
 
         <Button
           variant="ghost"

@@ -8,20 +8,20 @@ import ImportData from "./pages/ImportData";
 import RulesPanel from "./pages/RulesPanel";
 import Reconciliation from "./pages/Reconciliation";
 import Reports from "./pages/Reports";
+import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
-import LoginPage from "./pages/LoginPage"; // Importar a página de login
-import { SessionContextProvider, useSession } from "./components/auth/SessionContextProvider"; // Importar o provedor de sessão
+import LoginPage from "./pages/LoginPage";
+import { SessionContextProvider, useSession } from "./components/auth/SessionContextProvider";
 
 const queryClient = new QueryClient();
 
-// Componente para proteger rotas
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { session, isLoading } = useSession();
 
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
-        Carregando autenticação...
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
       </div>
     );
   }
@@ -32,6 +32,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
   return <>{children}</>;
 };
+
+import { Loader2 } from "lucide-react";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -82,7 +84,14 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            <Route
+              path="/profile"
+              element={
+                <ProtectedRoute>
+                  <Profile />
+                </ProtectedRoute>
+              }
+            />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </SessionContextProvider>
