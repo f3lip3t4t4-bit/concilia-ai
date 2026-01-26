@@ -21,14 +21,14 @@ const LoginPage = () => {
         <CardContent>
           <Auth
             supabaseClient={supabase}
-            providers={[]} // Removendo provedores de terceiros para manter a simplicidade
+            providers={["github"]}
             appearance={{
               theme: ThemeSupa,
               variables: {
                 default: {
                   colors: {
-                    brand: "hsl(220 80% 50%)", // Cor primária do seu tema
-                    brandAccent: "hsl(220 80% 60%)", // Cor de destaque
+                    brand: "hsl(220 80% 50%)",
+                    brandAccent: "hsl(220 80% 60%)",
                     defaultButtonBackground: "hsl(220 80% 50%)",
                     defaultButtonBackgroundHover: "hsl(220 80% 60%)",
                     defaultButtonBorder: "hsl(220 80% 50%)",
@@ -48,7 +48,7 @@ const LoginPage = () => {
                 },
               },
             }}
-            theme="light" // Usando o tema claro
+            // Removido theme="light" para permitir que o tema se adapte automaticamente
             localization={{
               variables: {
                 sign_in: {
