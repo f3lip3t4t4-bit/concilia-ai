@@ -42,7 +42,8 @@ const ImportData = () => {
       reader.onload = (e) => {
         try {
           const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: "array", cellDates: true, dateNF: 'yyyy-mm-dd' });
+          // cellDates: true converte para Date, mas o fuso horário pode atrapalhar
+          const workbook = XLSX.read(data, { type: "array", cellDates: true });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
           const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: true }) as any[][];
@@ -58,13 +59,16 @@ const ImportData = () => {
 
   const formatDate = (val: any) => {
     if (!val) return null;
+    
+    let d: Date;
+    
     if (val instanceof Date) {
-      const year = val.getUTCFullYear();
-      const month = String(val.getUTCMonth() + 1).padStart(2, '0');
-      const day = String(val.getUTCDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
-    }
-    if (typeof val === 'string' && val.includes('/')) {
+      // Se for Date, adicionamos algumas horas para garantir que a extração UTC não caia no dia anterior
+      // Isso resolve o problema de datas como 01/10/2025 aparecendo como 30/09/2025
+      d = new Date(val.getTime() + (val.getTimezoneOffset() * 60000));
+      // Adicionalmente, forçamos o meio do dia para evitar bordas de meia-noite
+      d.setHours(12, 0, 0, 0);
+    } else if (typeof val === 'string' && val.includes('/')) {
       const parts = val.split('/');
       if (parts.length === 3) {
         const day = parts[0].padStart(2, '0');
@@ -72,14 +76,18 @@ const ImportData = () => {
         const year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
         return `${year}-${month}-${day}`;
       }
+      return null;
+    } else {
+      d = new Date(val);
     }
-    try {
-      const d = new Date(val);
-      if (!isNaN(d.getTime())) {
-        return d.toISOString().split('T')[0];
-      }
-    } catch (e) {}
-    return null;
+
+    if (isNaN(d.getTime())) return null;
+
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    
+    return `${year}-${month}-${day}`;
   };
 
   const parseAmount = (val: any) => {
@@ -177,7 +185,6 @@ const ImportData = () => {
       setBankStatementFile(null);
       setFinancialEntriesFile(null);
       
-      // Redireciona automaticamente após o sucesso
       navigate("/reconciliation");
     } catch (error: any) {
       showError(`Erro: ${error.message}`);
