@@ -1,34 +1,97 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Layout from "@/components/layout/Layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Button } from "@/components/ui/button";
-import { Settings, DollarSign, CalendarDays } from "lucide-react";
+import { Settings, DollarSign, CalendarDays, Loader2 } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
+import { supabase } from "@/lib/supabase";
+import { useSession } from "@/components/auth/SessionContextProvider";
 
 const RulesPanel = () => {
-  const [valueTolerance, setValueTolerance] = useState<string>("0.05");
-  const [dateDifference, setDateDifference] = useState<string>("1");
-  const [autoGroup, setAutoGroup] = useState<boolean>(false);
-  const [suggestGroup, setSuggestGroup] = useState<boolean>(true);
-  const [informDivergence, setInformDivergence] = useState<boolean>(true);
+  const { user } = useSession();
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  
+  const [rules, setRules] = useState({
+    value_tolerance: "0.05",
+    date_tolerance_days: "1",
+    auto_group: false,
+    suggest_group: true,
+    inform_divergence: true,
+  });
 
-  const handleSaveRules = () => {
-    // Em uma implementação real, você enviaria essas configurações para o backend (Supabase).
-    console.log("Saving Rules:", {
-      valueTolerance: parseFloat(valueTolerance),
-      dateDifference: parseInt(dateDifference),
-      autoGroup,
-      suggestGroup,
-      informDivergence,
-    });
-    showSuccess("Regras salvas com sucesso! (Simulado)");
-    // Aqui você integraria com o backend para persistir as regras.
+  useEffect(() => {
+    const fetchRules = async () => {
+      if (!user) return;
+      try {
+        const { data, error } = await supabase
+          .from("reconciliation_rules")
+          .select("*")
+          .eq("user_id", user.id)
+          .single();
+
+        if (error && error.code !== "PGRST116") throw error; // PGRST116 is "not found"
+        
+        if (data) {
+          setRules({
+            value_tolerance: data.value_tolerance.toString(),
+            date_tolerance_days: data.date_tolerance_days.toString(),
+            auto_group: data.auto_group,
+            suggest_group: data.suggest_group,
+            inform_divergence: data.inform_divergence,
+          });
+        }
+      } catch (error: any) {
+        showError("Erro ao carregar regras: " + error.message);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRules();
+  }, [user]);
+
+  const handleSaveRules = async () => {
+    if (!user) return;
+    setIsSaving(true);
+    try {
+      const payload = {
+        user_id: user.id,
+        value_tolerance: parseFloat(rules.value_tolerance),
+        date_tolerance_days: parseInt(rules.date_tolerance_days),
+        auto_group: rules.auto_group,
+        suggest_group: rules.suggest_group,
+        inform_divergence: rules.inform_divergence,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase
+        .from("reconciliation_rules")
+        .upsert(payload, { onConflict: "user_id" });
+
+      if (error) throw error;
+      showSuccess("Regras salvas com sucesso!");
+    } catch (error: any) {
+      showError("Erro ao salvar regras: " + error.message);
+    } finally {
+      setIsSaving(false);
+    }
   };
+
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-full">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -56,9 +119,9 @@ const RulesPanel = () => {
                     id="value-tolerance"
                     type="number"
                     step="0.01"
-                    value={valueTolerance}
-                    onChange={(e) => setValueTolerance(e.target.value)}
-                    className="text-lg p-3 rounded-md border-input focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                    value={rules.value_tolerance}
+                    onChange={(e) => setRules({ ...rules, value_tolerance: e.target.value })}
+                    className="text-lg p-3 rounded-md border-input"
                   />
                   <p className="text-sm text-muted-foreground mt-1">Ex: 0.05 para R$ 0,05 de diferença.</p>
                 </div>
@@ -71,9 +134,9 @@ const RulesPanel = () => {
                     type="number"
                     step="1"
                     min="0"
-                    value={dateDifference}
-                    onChange={(e) => setDateDifference(e.target.value)}
-                    className="text-lg p-3 rounded-md border-input focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
+                    value={rules.date_tolerance_days}
+                    onChange={(e) => setRules({ ...rules, date_tolerance_days: e.target.value })}
+                    className="text-lg p-3 rounded-md border-input"
                   />
                   <p className="text-sm text-muted-foreground mt-1">Ex: 1 para ±1 dia.</p>
                 </div>
@@ -89,33 +152,33 @@ const RulesPanel = () => {
                 <div className="flex items-center space-x-3">
                   <Checkbox
                     id="auto-group"
-                    checked={autoGroup}
-                    onCheckedChange={(checked) => setAutoGroup(checked as boolean)}
-                    className="h-5 w-5 rounded-md border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
+                    checked={rules.auto_group}
+                    onCheckedChange={(checked) => setRules({ ...rules, auto_group: !!checked })}
+                    className="h-5 w-5"
                   />
-                  <Label htmlFor="auto-group" className="text-lg font-medium text-foreground cursor-pointer">
+                  <Label htmlFor="auto-group" className="text-lg font-medium cursor-pointer">
                     Agrupar lançamentos automaticamente
                   </Label>
                 </div>
                 <div className="flex items-center space-x-3">
                   <Checkbox
                     id="suggest-group"
-                    checked={suggestGroup}
-                    onCheckedChange={(checked) => setSuggestGroup(checked as boolean)}
-                    className="h-5 w-5 rounded-md border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
+                    checked={rules.suggest_group}
+                    onCheckedChange={(checked) => setRules({ ...rules, suggest_group: !!checked })}
+                    className="h-5 w-5"
                   />
-                  <Label htmlFor="suggest-group" className="text-lg font-medium text-foreground cursor-pointer">
+                  <Label htmlFor="suggest-group" className="text-lg font-medium cursor-pointer">
                     Apenas sugerir agrupamentos
                   </Label>
                 </div>
                 <div className="flex items-center space-x-3">
                   <Checkbox
                     id="inform-divergence"
-                    checked={informDivergence}
-                    onCheckedChange={(checked) => setInformDivergence(checked as boolean)}
-                    className="h-5 w-5 rounded-md border-primary data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground"
+                    checked={rules.inform_divergence}
+                    onCheckedChange={(checked) => setRules({ ...rules, inform_divergence: !!checked })}
+                    className="h-5 w-5"
                   />
-                  <Label htmlFor="inform-divergence" className="text-lg font-medium text-foreground cursor-pointer">
+                  <Label htmlFor="inform-divergence" className="text-lg font-medium cursor-pointer">
                     Apenas informar divergências
                   </Label>
                 </div>
@@ -124,9 +187,10 @@ const RulesPanel = () => {
 
             <Button
               onClick={handleSaveRules}
-              className="w-full py-3 text-lg font-semibold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 bg-primary text-primary-foreground hover:bg-primary/90"
+              disabled={isSaving}
+              className="w-full py-3 text-lg font-semibold"
             >
-              Salvar Regras
+              {isSaving ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : "Salvar Regras"}
             </Button>
           </CardContent>
         </Card>
