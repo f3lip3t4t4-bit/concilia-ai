@@ -51,47 +51,47 @@ const Index = () => {
         <h1 className="text-4xl font-extrabold text-primary mb-8 text-center">Dashboard de Conciliação</h1>
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card className="rounded-xl shadow-lg border-none bg-gradient-to-br from-blue-500 to-blue-700 text-white">
+          <Card className="rounded-xl shadow-lg border-none bg-blue-600 text-white">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-xl font-medium">Total Extrato</CardTitle>
-              <DollarSign className="h-6 w-6 text-white/80" />
+              <DollarSign className="h-6 w-6 text-blue-200" />
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">{formatCurrency(totalExtrato)}</div>
-              <p className="text-sm text-white/90">Total dos extratos importados</p>
+              <p className="text-sm text-blue-100">Total dos extratos importados</p>
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl shadow-lg border-none bg-gradient-to-br from-green-500 to-green-700 text-white">
+          <Card className="rounded-xl shadow-lg border-none bg-green-600 text-white">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-xl font-medium">Lançado Corretamente</CardTitle>
-              <CheckCircle className="h-6 w-6 text-white/80" />
+              <CheckCircle className="h-6 w-6 text-green-200" />
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">{formatCurrency(lancadoCorretamente)}</div>
-              <p className="text-sm text-white/90">Itens conciliados sem divergência</p>
+              <p className="text-sm text-green-100">Itens conciliados sem divergência</p>
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl shadow-lg border-none bg-gradient-to-br from-yellow-500 to-yellow-700 text-white">
+          <Card className="rounded-xl shadow-lg border-none bg-yellow-600 text-white">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-xl font-medium">Com Divergência</CardTitle>
-              <AlertTriangle className="h-6 w-6 text-white/80" />
+              <AlertTriangle className="h-6 w-6 text-yellow-200" />
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">{formatCurrency(comDivergencia)}</div>
-              <p className="text-sm text-white/90">Itens com pequenas diferenças</p>
+              <p className="text-sm text-yellow-100">Itens com pequenas diferenças</p>
             </CardContent>
           </Card>
 
-          <Card className="rounded-xl shadow-lg border-none bg-gradient-to-br from-red-500 to-red-700 text-white">
+          <Card className="rounded-xl shadow-lg border-none bg-red-600 text-white">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-xl font-medium">Não Identificado</CardTitle>
-              <BarChart className="h-6 w-6 text-white/80" />
+              <BarChart className="h-6 w-6 text-red-200" />
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold">{formatCurrency(naoIdentificado)}</div>
-              <p className="text-sm text-white/90">Itens sem correspondência</p>
+              <p className="text-sm text-red-100">Itens sem correspondência</p>
             </CardContent>
           </Card>
         </div>
