@@ -38,7 +38,7 @@ const ImportData = () => {
       reader.onload = (e) => {
         try {
           const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          const workbook = XLSX.read(data, { type: "array" });
+          const workbook = XLSX.read(data, { type: "array", cellDates: true });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
           const jsonData = XLSX.utils.sheet_to_json(worksheet);
@@ -50,6 +50,13 @@ const ImportData = () => {
       reader.onerror = (err) => reject(err);
       reader.readAsArrayBuffer(file);
     });
+  };
+
+  const formatDate = (val: any) => {
+    if (!val) return new Date().toISOString().split('T')[0];
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return new Date().toISOString().split('T')[0];
+    return d.toISOString().split('T')[0];
   };
 
   const handleUpload = async () => {
@@ -64,7 +71,7 @@ const ImportData = () => {
       const bankData = await parseExcel(bankStatementFile);
       const formattedBankData = bankData.map((row: any) => ({
         user_id: user.id,
-        date: new Date(row.Data || row.date || new Date()).toISOString().split('T')[0],
+        date: formatDate(row.Data || row.date),
         description: row.Descrição || row.description || "Sem descrição",
         amount: parseFloat(row.Valor || row.amount || 0),
       }));
@@ -72,11 +79,12 @@ const ImportData = () => {
       const financialData = await parseExcel(financialEntriesFile);
       const formattedFinancialData = financialData.map((row: any) => ({
         user_id: user.id,
-        date: new Date(row.Data || row.date || new Date()).toISOString().split('T')[0],
+        date: formatDate(row.Data || row.date),
         description: row.Descrição || row.description || "Sem descrição",
         amount: parseFloat(row.Valor || row.amount || 0),
       }));
 
+      // Limpar antes de subir se necessário ou apenas inserir
       const { error: bankError } = await supabase.from("bank_statements").insert(formattedBankData);
       if (bankError) throw bankError;
 
@@ -98,7 +106,6 @@ const ImportData = () => {
     
     setIsClearing(true);
     try {
-      // Devido ao CASCADE, apagar bank_statements e financial_entries deve apagar matches
       await Promise.all([
         supabase.from("bank_statements").delete().eq("user_id", user.id),
         supabase.from("financial_entries").delete().eq("user_id", user.id)

@@ -1,13 +1,14 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Layout from "@/components/layout/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CheckCircle, AlertCircle, HelpCircle, Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { CheckCircle, AlertCircle, HelpCircle, Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/components/auth/SessionContextProvider";
 import { showSuccess, showError } from "@/utils/toast";
@@ -30,6 +31,9 @@ const Reconciliation = () => {
 
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
   const [selectedFinId, setSelectedFinId] = useState<string | null>(null);
+  
+  const [searchTermBank, setSearchTermBank] = useState("");
+  const [searchTermFin, setSearchTermFin] = useState("");
 
   const fetchData = useCallback(async () => {
     if (!user) return;
@@ -46,7 +50,6 @@ const Reconciliation = () => {
       setFinEntries(finRes.data || []);
       setMatches(matchRes.data || []);
       
-      // Garante que rules sempre tenha valores padrão
       if (ruleRes.data) {
         setRules(ruleRes.data);
       } else {
@@ -126,7 +129,7 @@ const Reconciliation = () => {
     });
 
     if (newMatches.length === 0) {
-      showError("Nenhum novo batimento encontrado.");
+      showError("Nenhum novo batimento encontrado com as regras atuais.");
       setIsProcessing(false);
       return;
     }
@@ -156,6 +159,18 @@ const Reconciliation = () => {
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
+  const filteredUnmatchedBank = useMemo(() => {
+    return bankEntries
+      .filter(e => !isMatched(e.id, "bank"))
+      .filter(e => e.description.toLowerCase().includes(searchTermBank.toLowerCase()));
+  }, [bankEntries, matches, searchTermBank]);
+
+  const filteredUnmatchedFin = useMemo(() => {
+    return finEntries
+      .filter(e => !isMatched(e.id, "fin"))
+      .filter(e => e.description.toLowerCase().includes(searchTermFin.toLowerCase()));
+  }, [finEntries, matches, searchTermFin]);
+
   if (loading) {
     return (
       <Layout>
@@ -166,68 +181,81 @@ const Reconciliation = () => {
     );
   }
 
-  const unmatchedBank = bankEntries.filter(e => !isMatched(e.id, "bank"));
-  const unmatchedFin = finEntries.filter(e => !isMatched(e.id, "fin"));
+  const totalUnmatchedBank = filteredUnmatchedBank.reduce((acc, curr) => acc + Number(curr.amount), 0);
+  const totalUnmatchedFin = filteredUnmatchedFin.reduce((acc, curr) => acc + Number(curr.amount), 0);
 
   return (
     <Layout>
       <div className="space-y-6">
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-primary">Conciliação Ativa</h1>
-            <p className="text-muted-foreground">Gerencie o batimento entre extrato e registros internos.</p>
+            <h1 className="text-3xl font-black text-primary tracking-tight">Conciliação Ativa</h1>
+            <p className="text-muted-foreground">Analise dados reais e realize o batimento inteligente.</p>
           </div>
           <div className="flex gap-2 w-full md:w-auto">
-            <Button onClick={fetchData} variant="outline" size="sm">
+            <Button onClick={fetchData} variant="outline" size="sm" className="rounded-xl">
               <RefreshCw className="mr-2 h-4 w-4" /> Atualizar
             </Button>
             <Button 
               onClick={handleAutoReconcile} 
               variant="default" 
               size="sm" 
-              className="bg-purple-600 hover:bg-purple-700"
-              disabled={isProcessing || (unmatchedBank.length === 0 || unmatchedFin.length === 0)}
+              className="bg-indigo-600 hover:bg-indigo-700 rounded-xl"
+              disabled={isProcessing || (filteredUnmatchedBank.length === 0 || filteredUnmatchedFin.length === 0)}
             >
               {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Zap className="mr-2 h-4 w-4" />}
-              Auto-Conciliar
+              Executar Auto-Conciliação
             </Button>
           </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Card className="border-none shadow-md overflow-hidden">
-            <CardHeader className="bg-blue-600 text-white p-4">
-              <CardTitle className="text-lg flex items-center justify-between">
-                <span>Extrato Bancário</span>
-                <Badge variant="secondary" className="bg-white/20 text-white border-none">
-                  {unmatchedBank.length} pendentes
+          <Card className="border-none shadow-xl overflow-hidden rounded-[2rem] bg-white">
+            <CardHeader className="bg-blue-600 text-white p-6">
+              <div className="flex items-center justify-between mb-2">
+                <CardTitle className="text-xl font-bold flex items-center gap-2">
+                  <div className="h-2 w-2 bg-white rounded-full animate-pulse" />
+                  Extrato Bancário
+                </CardTitle>
+                <Badge variant="secondary" className="bg-white/20 text-white border-none rounded-lg px-3 py-1">
+                  {filteredUnmatchedBank.length} pendentes
                 </Badge>
-              </CardTitle>
+              </div>
+              <p className="text-blue-100 text-sm font-medium">Total pendente: {formatCurrency(totalUnmatchedBank)}</p>
+              <div className="mt-4 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/50" />
+                <Input 
+                  placeholder="Buscar na descrição..." 
+                  className="bg-white/10 border-white/20 text-white placeholder:text-white/40 pl-10 rounded-xl"
+                  value={searchTermBank}
+                  onChange={(e) => setSearchTermBank(e.target.value)}
+                />
+              </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="max-h-[400px] overflow-auto">
+              <div className="max-h-[450px] overflow-auto">
                 <Table>
                   <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                     <TableRow>
-                      <TableHead className="w-24">Data</TableHead>
+                      <TableHead className="w-24 pl-6">Data</TableHead>
                       <TableHead>Descrição</TableHead>
-                      <TableHead className="text-right">Valor</TableHead>
+                      <TableHead className="text-right pr-6">Valor</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {unmatchedBank.map((entry) => (
+                    {filteredUnmatchedBank.map((entry) => (
                       <TableRow 
                         key={entry.id} 
-                        className={`cursor-pointer transition-colors ${selectedBankId === entry.id ? 'bg-blue-50 border-l-4 border-blue-600' : ''}`}
+                        className={`cursor-pointer transition-all border-none ${selectedBankId === entry.id ? 'bg-blue-50 ring-2 ring-inset ring-blue-600' : 'hover:bg-slate-50'}`}
                         onClick={() => setSelectedBankId(selectedBankId === entry.id ? null : entry.id)}
                       >
-                        <TableCell className="text-sm">{new Date(entry.date).toLocaleDateString('pt-BR')}</TableCell>
-                        <TableCell className="font-medium">{entry.description}</TableCell>
-                        <TableCell className="text-right font-bold text-blue-600">{formatCurrency(entry.amount)}</TableCell>
+                        <TableCell className="text-sm pl-6">{new Date(entry.date).toLocaleDateString('pt-BR')}</TableCell>
+                        <TableCell className="font-semibold text-slate-700">{entry.description}</TableCell>
+                        <TableCell className="text-right font-black text-blue-600 pr-6">{formatCurrency(entry.amount)}</TableCell>
                       </TableRow>
                     ))}
-                    {unmatchedBank.length === 0 && (
-                      <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground italic">Tudo conciliado!</TableCell></TableRow>
+                    {filteredUnmatchedBank.length === 0 && (
+                      <TableRow><TableCell colSpan={3} className="text-center py-12 text-muted-foreground italic">Nenhuma transação pendente encontrada.</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -235,39 +263,52 @@ const Reconciliation = () => {
             </CardContent>
           </Card>
 
-          <Card className="border-none shadow-md overflow-hidden">
-            <CardHeader className="bg-emerald-600 text-white p-4">
-              <CardTitle className="text-lg flex items-center justify-between">
-                <span>Lançamentos Internos</span>
-                <Badge variant="secondary" className="bg-white/20 text-white border-none">
-                  {unmatchedFin.length} pendentes
+          <Card className="border-none shadow-xl overflow-hidden rounded-[2rem] bg-white">
+            <CardHeader className="bg-emerald-600 text-white p-6">
+              <div className="flex items-center justify-between mb-2">
+                <CardTitle className="text-xl font-bold flex items-center gap-2">
+                  <div className="h-2 w-2 bg-white rounded-full animate-pulse" />
+                  Lançamentos Internos
+                </CardTitle>
+                <Badge variant="secondary" className="bg-white/20 text-white border-none rounded-lg px-3 py-1">
+                  {filteredUnmatchedFin.length} pendentes
                 </Badge>
-              </CardTitle>
+              </div>
+              <p className="text-emerald-100 text-sm font-medium">Total pendente: {formatCurrency(totalUnmatchedFin)}</p>
+              <div className="mt-4 relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/50" />
+                <Input 
+                  placeholder="Buscar na descrição..." 
+                  className="bg-white/10 border-white/20 text-white placeholder:text-white/40 pl-10 rounded-xl"
+                  value={searchTermFin}
+                  onChange={(e) => setSearchTermFin(e.target.value)}
+                />
+              </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="max-h-[400px] overflow-auto">
+              <div className="max-h-[450px] overflow-auto">
                 <Table>
                   <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                     <TableRow>
-                      <TableHead className="w-24">Data</TableHead>
+                      <TableHead className="w-24 pl-6">Data</TableHead>
                       <TableHead>Descrição</TableHead>
-                      <TableHead className="text-right">Valor</TableHead>
+                      <TableHead className="text-right pr-6">Valor</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {unmatchedFin.map((entry) => (
+                    {filteredUnmatchedFin.map((entry) => (
                       <TableRow 
                         key={entry.id} 
-                        className={`cursor-pointer transition-colors ${selectedFinId === entry.id ? 'bg-emerald-50 border-l-4 border-emerald-600' : ''}`}
+                        className={`cursor-pointer transition-all border-none ${selectedFinId === entry.id ? 'bg-emerald-50 ring-2 ring-inset ring-emerald-600' : 'hover:bg-slate-50'}`}
                         onClick={() => setSelectedFinId(selectedFinId === entry.id ? null : entry.id)}
                       >
-                        <TableCell className="text-sm">{new Date(entry.date).toLocaleDateString('pt-BR')}</TableCell>
-                        <TableCell className="font-medium">{entry.description}</TableCell>
-                        <TableCell className="text-right font-bold text-emerald-600">{formatCurrency(entry.amount)}</TableCell>
+                        <TableCell className="text-sm pl-6">{new Date(entry.date).toLocaleDateString('pt-BR')}</TableCell>
+                        <TableCell className="font-semibold text-slate-700">{entry.description}</TableCell>
+                        <TableCell className="text-right font-black text-emerald-600 pr-6">{formatCurrency(entry.amount)}</TableCell>
                       </TableRow>
                     ))}
-                    {unmatchedFin.length === 0 && (
-                      <TableRow><TableCell colSpan={3} className="text-center py-8 text-muted-foreground italic">Sem pendências.</TableCell></TableRow>
+                    {filteredUnmatchedFin.length === 0 && (
+                      <TableRow><TableCell colSpan={3} className="text-center py-12 text-muted-foreground italic">Tudo limpo por aqui.</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -276,34 +317,34 @@ const Reconciliation = () => {
           </Card>
         </div>
 
-        <div className="flex justify-center py-4">
+        <div className="flex justify-center py-6">
           <Button 
             size="lg" 
-            className="px-10 py-7 text-xl rounded-full shadow-2xl transition-all active:scale-95"
+            className="px-12 py-8 text-xl font-black rounded-3xl shadow-2xl transition-all active:scale-95 bg-primary hover:scale-105 disabled:opacity-50"
             disabled={!selectedBankId || !selectedFinId}
             onClick={handleManualMatch}
           >
-            <ArrowRightLeft className="mr-3 h-6 w-6" />
-            Conciliar Manualmente
+            <ArrowRightLeft className="mr-4 h-8 w-8" />
+            Conciliar Selecionados
           </Button>
         </div>
 
         <Tabs defaultValue="matched" className="w-full">
-          <TabsList className="bg-muted p-1 rounded-xl mb-4">
-            <TabsTrigger value="matched" className="px-6 py-2 rounded-lg data-[state=active]:bg-card data-[state=active]:shadow-sm">
+          <TabsList className="bg-slate-100 p-1 rounded-2xl mb-6">
+            <TabsTrigger value="matched" className="px-8 py-3 rounded-xl data-[state=active]:bg-white data-[state=active]:shadow-lg font-bold text-lg">
               Itens Conciliados ({matches.length})
             </TabsTrigger>
           </TabsList>
           <TabsContent value="matched">
-            <Card className="border-none shadow-md overflow-hidden">
+            <Card className="border-none shadow-xl overflow-hidden rounded-[2rem] bg-white">
               <CardContent className="p-0">
                 <Table>
-                  <TableHeader className="bg-muted/50">
+                  <TableHeader className="bg-slate-50">
                     <TableRow>
-                      <TableHead>Banco</TableHead>
+                      <TableHead className="pl-6 py-4">Banco</TableHead>
                       <TableHead>Financeiro</TableHead>
                       <TableHead>Método</TableHead>
-                      <TableHead className="text-right">Ação</TableHead>
+                      <TableHead className="text-right pr-6">Ação</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -311,33 +352,36 @@ const Reconciliation = () => {
                       const b = bankEntries.find(e => e.id === m.bank_statement_id);
                       const f = finEntries.find(e => e.id === m.financial_entry_id);
                       return (
-                        <TableRow key={m.id}>
-                          <TableCell>
-                            <div className="font-medium">{b?.description || "N/A"}</div>
-                            <div className="text-xs text-muted-foreground">{formatCurrency(b?.amount || 0)}</div>
+                        <TableRow key={m.id} className="border-b border-slate-50 last:border-0">
+                          <TableCell className="pl-6 py-4">
+                            <div className="font-bold text-slate-800">{b?.description || "N/A"}</div>
+                            <div className="text-xs font-black text-blue-600 mt-1">{formatCurrency(b?.amount || 0)} • {new Date(b?.date || "").toLocaleDateString('pt-BR')}</div>
                           </TableCell>
-                          <TableCell>
-                            <div className="font-medium">{f?.description || "N/A"}</div>
-                            <div className="text-xs text-muted-foreground">{formatCurrency(f?.amount || 0)}</div>
+                          <TableCell className="py-4">
+                            <div className="font-bold text-slate-800">{f?.description || "N/A"}</div>
+                            <div className="text-xs font-black text-emerald-600 mt-1">{formatCurrency(f?.amount || 0)} • {new Date(f?.date || "").toLocaleDateString('pt-BR')}</div>
                           </TableCell>
-                          <TableCell>
-                            <Badge variant={m.match_type === 'manual' ? 'outline' : 'secondary'}>
+                          <TableCell className="py-4">
+                            <Badge variant={m.match_type === 'manual' ? 'outline' : 'secondary'} className="rounded-lg font-bold">
                               {m.match_type === 'manual' ? 'Manual' : 'Automático'}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="text-right pr-6 py-4">
                             <Button 
                               variant="ghost" 
                               size="icon" 
                               onClick={() => handleUnmatch(m.id)}
-                              className="text-destructive"
+                              className="text-destructive hover:bg-destructive/10 rounded-xl"
                             >
-                              <Trash2 className="h-4 w-4" />
+                              <Trash2 className="h-5 w-5" />
                             </Button>
                           </TableCell>
                         </TableRow>
                       );
                     })}
+                    {matches.length === 0 && (
+                      <TableRow><TableCell colSpan={4} className="text-center py-12 text-muted-foreground">Nenhuma conciliação realizada ainda.</TableCell></TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </CardContent>
