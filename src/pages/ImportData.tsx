@@ -6,10 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { UploadCloud, FileText } from "lucide-react";
+import { UploadCloud, FileText, Loader2 } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
+import { supabase } from "@/lib/supabase";
+import { useSession } from "@/components/auth/SessionContextProvider";
+import * as XLSX from "xlsx";
 
 const ImportData = () => {
+  const { user } = useSession();
   const [bankStatementFile, setBankStatementFile] = useState<File | null>(null);
   const [financialEntriesFile, setFinancialEntriesFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -17,56 +21,82 @@ const ImportData = () => {
   const handleBankStatementChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       setBankStatementFile(event.target.files[0]);
-    } else {
-      setBankStatementFile(null);
     }
   };
 
   const handleFinancialEntriesChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
       setFinancialEntriesFile(event.target.files[0]);
-    } else {
-      setFinancialEntriesFile(null);
     }
   };
 
+  const parseExcel = (file: File): Promise<any[]> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          const workbook = XLSX.read(data, { type: "array" });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const jsonData = XLSX.utils.sheet_to_json(worksheet);
+          resolve(jsonData);
+        } catch (err) {
+          reject(err);
+        }
+      };
+      reader.onerror = (err) => reject(err);
+      reader.readAsArrayBuffer(file);
+    });
+  };
+
   const handleUpload = async () => {
-    if (!bankStatementFile || !financialEntriesFile) {
-      showError("Por favor, selecione ambos os arquivos antes de importar.");
+    if (!bankStatementFile || !financialEntriesFile || !user) {
+      showError("Por favor, selecione ambos os arquivos.");
       return;
     }
 
     setIsUploading(true);
-    // Simulação de upload. Em uma implementação real, você enviaria esses arquivos para o backend.
-    console.log("Uploading Bank Statement:", bankStatementFile.name);
-    console.log("Uploading Financial Entries:", financialEntriesFile.name);
 
-    // Aqui você integraria com o backend (Node.js + Supabase) para processar os arquivos.
-    // Por exemplo:
-    // const formData = new FormData();
-    // formData.append("bankStatement", bankStatementFile);
-    // formData.append("financialEntries", financialEntriesFile);
-    // try {
-    //   const response = await fetch("/api/upload-excel", {
-    //     method: "POST",
-    //     body: formData,
-    //   });
-    //   if (response.ok) {
-    //     showSuccess("Arquivos importados e normalizados com sucesso!");
-    //     // Redirecionar ou atualizar o estado para mostrar os dados processados
-    //   } else {
-    //     showError("Erro ao importar arquivos.");
-    //   }
-    // } catch (error) {
-    //   console.error("Upload error:", error);
-    //   showError("Erro de rede ou servidor ao importar arquivos.");
-    // }
+    try {
+      // Processar Extrato
+      const bankData = await parseExcel(bankStatementFile);
+      const formattedBankData = bankData.map((row: any) => ({
+        user_id: user.id,
+        date: new Date(row.Data || row.date || new Date()).toISOString().split('T')[0],
+        description: row.Descrição || row.description || "Sem descrição",
+        amount: parseFloat(row.Valor || row.amount || 0),
+      }));
 
-    await new Promise((resolve) => setTimeout(resolve, 2000)); // Simula delay de upload
-    showSuccess("Arquivos enviados para processamento! (Simulado)");
-    setIsUploading(false);
-    setBankStatementFile(null);
-    setFinancialEntriesFile(null);
+      // Processar Lançamentos
+      const financialData = await parseExcel(financialEntriesFile);
+      const formattedFinancialData = financialData.map((row: any) => ({
+        user_id: user.id,
+        date: new Date(row.Data || row.date || new Date()).toISOString().split('T')[0],
+        description: row.Descrição || row.description || "Sem descrição",
+        amount: parseFloat(row.Valor || row.amount || 0),
+      }));
+
+      // Limpar dados antigos (opcional, dependendo do fluxo desejado)
+      // await supabase.from("bank_statements").delete().eq("user_id", user.id);
+      // await supabase.from("financial_entries").delete().eq("user_id", user.id);
+
+      // Inserir novos dados
+      const { error: bankError } = await supabase.from("bank_statements").insert(formattedBankData);
+      if (bankError) throw bankError;
+
+      const { error: finError } = await supabase.from("financial_entries").insert(formattedFinancialData);
+      if (finError) throw finError;
+
+      showSuccess("Dados importados com sucesso!");
+      setBankStatementFile(null);
+      setFinancialEntriesFile(null);
+    } catch (error: any) {
+      console.error("Erro na importação:", error);
+      showError(`Erro ao importar dados: ${error.message}`);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   return (
@@ -75,14 +105,14 @@ const ImportData = () => {
         <Card className="w-full max-w-2xl rounded-xl shadow-lg border-none p-6 bg-card">
           <CardHeader className="text-center">
             <UploadCloud className="h-16 w-16 mx-auto text-primary mb-4" />
-            <CardTitle className="text-3xl font-bold text-primary">Importar Dados para Conciliação</CardTitle>
+            <CardTitle className="text-3xl font-bold text-primary">Importar Dados</CardTitle>
             <CardDescription className="text-lg text-muted-foreground mt-2">
-              Faça o upload do extrato bancário e dos lançamentos financeiros.
+              Envie seus arquivos Excel para processamento.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="grid w-full items-center gap-3">
-              <Label htmlFor="bank-statement" className="text-lg font-medium text-foreground">
+              <Label htmlFor="bank-statement" className="text-lg font-medium">
                 <FileText className="inline-block mr-2 h-5 w-5" />
                 Extrato Bancário (.xlsx)
               </Label>
@@ -91,17 +121,12 @@ const ImportData = () => {
                 type="file"
                 accept=".xlsx, .xls"
                 onChange={handleBankStatementChange}
-                className="file:text-primary file:font-semibold file:bg-primary/10 file:border-none file:rounded-md file:px-4 file:py-2 hover:file:bg-primary/20 transition-colors cursor-pointer"
+                className="cursor-pointer"
               />
-              {bankStatementFile && (
-                <p className="text-sm text-muted-foreground mt-1">
-                  Arquivo selecionado: <span className="font-medium">{bankStatementFile.name}</span>
-                </p>
-              )}
             </div>
 
             <div className="grid w-full items-center gap-3">
-              <Label htmlFor="financial-entries" className="text-lg font-medium text-foreground">
+              <Label htmlFor="financial-entries" className="text-lg font-medium">
                 <FileText className="inline-block mr-2 h-5 w-5" />
                 Lançamentos Financeiros (.xlsx)
               </Label>
@@ -110,21 +135,23 @@ const ImportData = () => {
                 type="file"
                 accept=".xlsx, .xls"
                 onChange={handleFinancialEntriesChange}
-                className="file:text-primary file:font-semibold file:bg-primary/10 file:border-none file:rounded-md file:px-4 file:py-2 hover:file:bg-primary/20 transition-colors cursor-pointer"
+                className="cursor-pointer"
               />
-              {financialEntriesFile && (
-                <p className="text-sm text-muted-foreground mt-1">
-                  Arquivo selecionado: <span className="font-medium">{financialEntriesFile.name}</span>
-                </p>
-              )}
             </div>
 
             <Button
               onClick={handleUpload}
               disabled={isUploading || !bankStatementFile || !financialEntriesFile}
-              className="w-full py-3 text-lg font-semibold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 bg-primary text-primary-foreground hover:bg-primary/90"
+              className="w-full py-6 text-lg font-semibold"
             >
-              {isUploading ? "Importando..." : "Importar Arquivos"}
+              {isUploading ? (
+                <>
+                  <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+                  Processando...
+                </>
+              ) : (
+                "Importar e Sincronizar"
+              )}
             </Button>
           </CardContent>
         </Card>
