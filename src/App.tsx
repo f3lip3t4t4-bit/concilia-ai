@@ -11,7 +11,10 @@ import Reports from "./pages/Reports";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 import LoginPage from "./pages/LoginPage";
+import Checkout from "./pages/Checkout";
 import { SessionContextProvider, useSession } from "./components/auth/SessionContextProvider";
+import { SubscriptionGuard } from "./components/auth/SubscriptionGuard";
+import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
 
@@ -30,10 +33,8 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
     return <Navigate to="/login" replace />;
   }
 
-  return <>{children}</>;
+  return <SubscriptionGuard>{children}</SubscriptionGuard>;
 };
-
-import { Loader2 } from "lucide-react";
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -44,54 +45,13 @@ const App = () => (
         <SessionContextProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <Index />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/import"
-              element={
-                <ProtectedRoute>
-                  <ImportData />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/rules"
-              element={
-                <ProtectedRoute>
-                  <RulesPanel />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/reconciliation"
-              element={
-                <ProtectedRoute>
-                  <Reconciliation />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/reports"
-              element={
-                <ProtectedRoute>
-                  <Reports />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/profile"
-              element={
-                <ProtectedRoute>
-                  <Profile />
-                </ProtectedRoute>
-              }
-            />
+            <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
+            <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
+            <Route path="/import" element={<ProtectedRoute><ImportData /></ProtectedRoute>} />
+            <Route path="/rules" element={<ProtectedRoute><RulesPanel /></ProtectedRoute>} />
+            <Route path="/reconciliation" element={<ProtectedRoute><Reconciliation /></ProtectedRoute>} />
+            <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+            <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </SessionContextProvider>
