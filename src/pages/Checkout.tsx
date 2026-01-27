@@ -26,11 +26,16 @@ const Checkout = () => {
       });
 
       if (error) throw error;
-      if (data.init_point) {
+      
+      if (data?.error) {
+        throw new Error(data.error);
+      }
+
+      if (data?.init_point) {
         window.location.href = data.init_point;
       }
     } catch (err: any) {
-      showError("Erro ao iniciar checkout.");
+      showError(err.message || "Erro ao iniciar checkout.");
     } finally {
       setLoading(false);
     }

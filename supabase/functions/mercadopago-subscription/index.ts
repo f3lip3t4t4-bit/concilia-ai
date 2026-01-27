@@ -11,7 +11,7 @@ serve(async (req) => {
 
   try {
     const authHeader = req.headers.get('Authorization')
-    if (!authHeader) throw new Error('Unauthorized')
+    if (!authHeader) throw new Error('Cabeçalho de autorização ausente')
 
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
@@ -20,24 +20,45 @@ serve(async (req) => {
     )
 
     const { data: { user } } = await supabaseClient.auth.getUser()
-    if (!user) throw new Error('User not found')
+    if (!user) throw new Error('Usuário não autenticado')
 
-    const { plan, tax_id, name } = await req.json()
+    const { name, tax_id } = await req.json()
+    if (!name || !tax_id) throw new Error('Nome e CPF/CNPJ são obrigatórios')
+
     const MP_ACCESS_TOKEN = Deno.env.get('MERCADO_PAGO_ACCESS_TOKEN')
-
-    console.log(`[mercadopago-subscription] Iniciando assinatura para ${user.email}`)
+    if (!MP_ACCESS_TOKEN) {
+      throw new Error('MERCADO_PAGO_ACCESS_TOKEN não configurado no Supabase');
+    }
 
     // 1. Criar/Buscar Customer no MP
     const customerResp = await fetch('https://api.mercadopago.com/v1/customers', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: user.email, first_name: name, identification: { type: tax_id.length > 11 ? 'CNPJ' : 'CPF', number: tax_id } })
+      body: JSON.stringify({ 
+        email: user.email, 
+        first_name: name, 
+        identification: { 
+          type: tax_id.replace(/\D/g, '').length > 11 ? 'CNPJ' : 'CPF', 
+          number: tax_id.replace(/\D/g, '') 
+        } 
+      })
     })
-    const customer = await customerResp.json()
-    const customerId = customer.id
+    
+    let customer = await customerResp.json()
+    let customerId = customer.id
+
+    // Se o cliente já existir, buscamos pelo e-mail
+    if (customerResp.status === 400 && customer.cause?.[0]?.code === "already_exists_customer") {
+       const searchResp = await fetch(`https://api.mercadopago.com/v1/customers/search?email=${user.email}`, {
+         headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}` }
+       })
+       const searchData = await searchResp.json()
+       customerId = searchData.results?.[0]?.id
+    }
+
+    if (!customerId) throw new Error('Erro ao processar cliente no Mercado Pago')
 
     // 2. Criar Assinatura (Pre-approval)
-    // Nota: Em produção, você usaria um 'plan_id' pré-criado no painel do MP
     const subBody = {
       reason: "Assinatura Concilia Pro",
       external_reference: user.id,
@@ -48,7 +69,7 @@ serve(async (req) => {
         transaction_amount: 49.90,
         currency_id: "BRL"
       },
-      back_url: "https://klokjxcaeamgbfowmbqf.supabase.co", // URL do seu app
+      back_url: "https://klokjxcaeamgbfowmbqf.supabase.co", 
       status: "pending"
     }
 
@@ -58,6 +79,10 @@ serve(async (req) => {
       body: JSON.stringify(subBody)
     })
     const subscription = await subResp.json()
+
+    if (subResp.status >= 400) {
+      throw new Error(`Erro MP: ${subscription.message || 'Falha na assinatura'}`)
+    }
 
     // 3. Salvar no Banco
     await supabaseClient.from('subscriptions').upsert({
@@ -72,10 +97,9 @@ serve(async (req) => {
     })
 
   } catch (error) {
-    console.error("[mercadopago-subscription] Erro:", error.message)
     return new Response(JSON.stringify({ error: error.message }), { 
       status: 400, 
-      headers: corsHeaders 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })
   }
 })
