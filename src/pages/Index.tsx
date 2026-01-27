@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 
 const Index = () => {
   const { user, isLoading: sessionLoading } = useSession();
+  const [firstName, setFirstName] = useState<string>("");
   const [data, setData] = useState({
     totalBank: 0,
     totalFin: 0,
@@ -21,6 +22,24 @@ const Index = () => {
     matches: 0
   });
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const fetchProfile = useCallback(async () => {
+    if (!user) return;
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("first_name")
+      .eq("id", user.id)
+      .single();
+    
+    if (profile?.first_name) {
+      setFirstName(profile.first_name);
+    } else {
+      // Fallback: Primeira parte do email com a primeira letra maiúscula
+      const emailName = user.email?.split('@')[0] || "";
+      const formatted = emailName.split('.')[0]; // Pega só o primeiro nome se houver pontos
+      setFirstName(formatted.charAt(0).toUpperCase() + formatted.slice(1));
+    }
+  }, [user]);
 
   const fetchData = useCallback(async () => {
     if (!user) return;
@@ -56,8 +75,9 @@ const Index = () => {
   useEffect(() => {
     if (user) {
       fetchData();
+      fetchProfile();
     }
-  }, [user, fetchData]);
+  }, [user, fetchData, fetchProfile]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat("pt-BR", {
@@ -81,17 +101,17 @@ const Index = () => {
       <div className="max-w-7xl mx-auto space-y-6 sm:space-y-10">
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-            <h1 className="text-3xl sm:text-4xl font-black text-primary tracking-tight">
-              Olá, {user?.email?.split('@')[0]}
+            <h1 className="text-3xl sm:text-5xl font-black text-primary tracking-tight">
+              Olá, {firstName}
             </h1>
-            <p className="text-muted-foreground text-base sm:text-lg">
-              Resumo da sua saúde financeira e conciliação.
+            <p className="text-muted-foreground text-base sm:text-xl font-medium mt-1">
+              Aqui está o resumo da sua saúde financeira hoje.
             </p>
           </div>
           <Button 
             onClick={fetchData} 
             variant="outline" 
-            className="rounded-xl px-6 h-12 shadow-sm bg-white border-slate-200 hover:bg-slate-50 transition-all w-full md:w-auto" 
+            className="rounded-xl px-6 h-12 shadow-sm bg-white border-slate-200 hover:bg-slate-50 transition-all w-full md:w-auto font-bold" 
             disabled={isLoading}
           >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-2 text-primary" />}
