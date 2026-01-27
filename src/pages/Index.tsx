@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from "react";
 import Layout from "@/components/layout/Layout";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { DollarSign, RefreshCw, Loader2, ArrowUpRight, ArrowDownRight, CheckCircle2, AlertCircle, TrendingUp, History, ExternalLink } from "lucide-react";
 import { showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -58,7 +59,6 @@ const Index = () => {
       const totalBank = bankRes.data?.reduce((acc, curr) => acc + Number(curr.amount), 0) || 0;
       const totalFin = finRes.data?.reduce((acc, curr) => acc + Number(curr.amount), 0) || 0;
 
-      // Buscar detalhes dos matches recentes (precisamos do count total e também dos itens)
       const { count } = await supabase.from("reconciliation_matches").select("id", { count: 'exact', head: true }).eq("user_id", user.id);
 
       setData({
@@ -69,8 +69,6 @@ const Index = () => {
         matches: count || 0
       });
 
-      // Melhorar a busca de recentes para pegar os nomes (mocked for simplicity here, or we join)
-      // Como não temos join fácil no supabase client sem view, vamos apenas marcar que existem
       setRecentMatches(matchRes.data || []);
       
     } catch (error: any) {
@@ -140,7 +138,7 @@ const Index = () => {
               </div>
             </CardHeader>
             <CardContent className="p-0 relative z-10">
-              <div className="text-4xl font-black mb-2">{formatCurrency(data.totalBank)}</div>
+              <div className="text-3xl sm:text-4xl font-black mb-2">{formatCurrency(data.totalBank)}</div>
               <div className="flex items-center gap-2 text-sm font-bold bg-white/10 w-fit px-3 py-1 rounded-full">
                 <div className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
                 {data.countBank} transações
@@ -159,7 +157,7 @@ const Index = () => {
               </div>
             </CardHeader>
             <CardContent className="p-0 relative z-10">
-              <div className="text-4xl font-black mb-2">{formatCurrency(data.totalFin)}</div>
+              <div className="text-3xl sm:text-4xl font-black mb-2">{formatCurrency(data.totalFin)}</div>
               <div className="flex items-center gap-2 text-sm font-bold bg-white/10 w-fit px-3 py-1 rounded-full">
                 <div className="h-2 w-2 rounded-full bg-blue-300" />
                 {data.countFin} lançamentos
@@ -171,7 +169,7 @@ const Index = () => {
             <div className="flex justify-between items-start mb-6">
               <div>
                 <h3 className="text-sm font-black uppercase tracking-widest text-slate-400">Eficiência</h3>
-                <div className="text-5xl font-black text-primary mt-1 tracking-tighter">{recRate}%</div>
+                <div className="text-4xl sm:text-5xl font-black text-primary mt-1 tracking-tighter">{recRate}%</div>
               </div>
               <div className={cn(
                 "h-16 w-16 rounded-[1.5rem] flex items-center justify-center shadow-inner",
