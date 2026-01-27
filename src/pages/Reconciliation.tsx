@@ -9,11 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap, Search, Info } from "lucide-react";
+import { Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap, Search, LayoutDashboard, PartyPopper } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/components/auth/SessionContextProvider";
 import { showSuccess, showError } from "@/utils/toast";
 import { cn } from "@/lib/utils";
+import confetti from "canvas-confetti";
+import { useNavigate } from "react-router-dom";
 
 interface Entry {
   id: string;
@@ -24,6 +26,7 @@ interface Entry {
 
 const Reconciliation = () => {
   const { user } = useSession();
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   
@@ -32,7 +35,6 @@ const Reconciliation = () => {
   const [matches, setMatches] = useState<any[]>([]);
   const [rules, setRules] = useState<any>({ value_tolerance: 0.05, date_tolerance_days: 1 });
 
-  // Seleção Múltipla usando Arrays (mais estável que Set para React State)
   const [selectedBankIds, setSelectedBankIds] = useState<string[]>([]);
   const [selectedFinIds, setSelectedFinIds] = useState<string[]>([]);
   
@@ -68,6 +70,40 @@ const Reconciliation = () => {
   const matchedBankIds = useMemo(() => new Set(matches.map(m => m.bank_statement_id)), [matches]);
   const matchedFinIds = useMemo(() => new Set(matches.map(m => m.financial_entry_id)), [matches]);
 
+  const filteredBank = useMemo(() => bankEntries.filter(e => !matchedBankIds.has(e.id)), [bankEntries, matchedBankIds]);
+  const filteredFin = useMemo(() => finEntries.filter(e => !matchedFinIds.has(e.id)), [finEntries, matchedFinIds]);
+
+  const isAllClear = useMemo(() => {
+    return !loading && 
+           (bankEntries.length > 0 || finEntries.length > 0) && 
+           filteredBank.length === 0 && 
+           filteredFin.length === 0;
+  }, [loading, bankEntries.length, finEntries.length, filteredBank.length, filteredFin.length]);
+
+  useEffect(() => {
+    if (isAllClear) {
+      const duration = 3 * 1000;
+      const animationEnd = Date.now() + duration;
+      const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+
+      const randomInRange = (min: number, max: number) => Math.random() * (max - min) + min;
+
+      const interval: any = setInterval(function() {
+        const timeLeft = animationEnd - Date.now();
+
+        if (timeLeft <= 0) {
+          return clearInterval(interval);
+        }
+
+        const particleCount = 50 * (timeLeft / duration);
+        confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
+        confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
+      }, 250);
+
+      return () => clearInterval(interval);
+    }
+  }, [isAllClear]);
+
   const toggleBank = (id: string) => {
     setSelectedBankIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
@@ -87,7 +123,6 @@ const Reconciliation = () => {
       const groupId = window.crypto.randomUUID();
       const payload: any[] = [];
 
-      // Criamos registros para registrar o agrupamento
       selectedBankIds.forEach(bId => {
         selectedFinIds.forEach(fId => {
           payload.push({
@@ -118,8 +153,8 @@ const Reconciliation = () => {
     if (!user) return;
     setIsProcessing(true);
     
-    const unBank = bankEntries.filter(e => !matchedBankIds.has(e.id));
-    const unFin = finEntries.filter(e => !matchedFinIds.has(e.id));
+    const unBank = filteredBank;
+    const unFin = filteredFin;
     
     const newMatches: any[] = [];
     const usedFin = new Set<string>();
@@ -175,14 +210,45 @@ const Reconciliation = () => {
     return `${day}/${m}/${y}`;
   };
 
-  const filteredBank = bankEntries.filter(e => !matchedBankIds.has(e.id) && e.description.toLowerCase().includes(searchTermBank.toLowerCase()));
-  const filteredFin = finEntries.filter(e => !matchedFinIds.has(e.id) && e.description.toLowerCase().includes(searchTermFin.toLowerCase()));
-
   const bankTotal = selectedBankIds.reduce((acc, id) => acc + (bankEntries.find(e => e.id === id)?.amount || 0), 0);
   const finTotal = selectedFinIds.reduce((acc, id) => acc + (finEntries.find(e => e.id === id)?.amount || 0), 0);
   const difference = Math.abs(bankTotal - finTotal);
 
   if (loading) return <Layout><div className="flex h-full items-center justify-center"><Loader2 className="animate-spin h-10 w-10 text-primary" /></div></Layout>;
+
+  if (isAllClear) {
+    return (
+      <Layout>
+        <div className="h-[70vh] flex flex-col items-center justify-center text-center space-y-8 animate-in fade-in zoom-in duration-500">
+          <div className="relative">
+            <div className="absolute -inset-4 bg-emerald-500/20 blur-3xl rounded-full animate-pulse" />
+            <div className="h-32 w-32 bg-emerald-500 text-white rounded-[2.5rem] flex items-center justify-center shadow-2xl relative">
+              <PartyPopper size={64} />
+            </div>
+          </div>
+          
+          <div className="space-y-3">
+            <h1 className="text-5xl font-black text-primary tracking-tight">Tudo em ordem!</h1>
+            <p className="text-xl text-muted-foreground max-w-md mx-auto">
+              Você não possui nenhuma pendência de conciliação no momento. Sua saúde financeira está em dia!
+            </p>
+          </div>
+
+          <Button 
+            size="lg" 
+            onClick={() => navigate("/")}
+            className="h-16 px-10 text-xl font-black rounded-2xl shadow-xl hover:scale-105 transition-all bg-primary"
+          >
+            <LayoutDashboard className="mr-3 h-6 w-6" /> Ir para o Dashboard
+          </Button>
+
+          <Button variant="ghost" onClick={fetchData} className="text-muted-foreground">
+            <RefreshCw className="mr-2 h-4 w-4" /> Recarregar dados
+          </Button>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>
@@ -201,7 +267,6 @@ const Reconciliation = () => {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* BANCO */}
           <Card className="border-none shadow-xl rounded-[2rem] overflow-hidden bg-white">
             <div className="bg-blue-600 p-6 text-white">
               <div className="flex justify-between items-center mb-4">
@@ -221,7 +286,7 @@ const Reconciliation = () => {
               <Table>
                 <TableHeader><TableRow><TableHead className="w-10"></TableHead><TableHead>Data</TableHead><TableHead>Descrição</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {filteredBank.map(e => (
+                  {filteredBank.filter(e => e.description.toLowerCase().includes(searchTermBank.toLowerCase())).map(e => (
                     <TableRow key={e.id} className={cn("cursor-pointer", selectedBankIds.includes(e.id) && "bg-blue-50")} onClick={() => toggleBank(e.id)}>
                       <TableCell onClick={ev => ev.stopPropagation()}><Checkbox checked={selectedBankIds.includes(e.id)} onCheckedChange={() => toggleBank(e.id)} /></TableCell>
                       <TableCell className="text-xs">{formatDateBR(e.date)}</TableCell>
@@ -234,7 +299,6 @@ const Reconciliation = () => {
             </div>
           </Card>
 
-          {/* SISTEMA */}
           <Card className="border-none shadow-xl rounded-[2rem] overflow-hidden bg-white">
             <div className="bg-emerald-600 p-6 text-white">
               <div className="flex justify-between items-center mb-4">
@@ -254,7 +318,7 @@ const Reconciliation = () => {
               <Table>
                 <TableHeader><TableRow><TableHead className="w-10"></TableHead><TableHead>Data</TableHead><TableHead>Histórico</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {filteredFin.map(e => (
+                  {filteredFin.filter(e => e.description.toLowerCase().includes(searchTermFin.toLowerCase())).map(e => (
                     <TableRow key={e.id} className={cn("cursor-pointer", selectedFinIds.includes(e.id) && "bg-emerald-50")} onClick={() => toggleFin(e.id)}>
                       <TableCell onClick={ev => ev.stopPropagation()}><Checkbox checked={selectedFinIds.includes(e.id)} onCheckedChange={() => toggleFin(e.id)} /></TableCell>
                       <TableCell className="text-xs">{formatDateBR(e.date)}</TableCell>
