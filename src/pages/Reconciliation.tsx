@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap, Search } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/components/auth/SessionContextProvider";
@@ -29,8 +30,9 @@ const Reconciliation = () => {
   const [matches, setMatches] = useState<any[]>([]);
   const [rules, setRules] = useState<any>({ value_tolerance: 0.05, date_tolerance_days: 1 });
 
-  const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
-  const [selectedFinId, setSelectedFinId] = useState<string | null>(null);
+  // Seleção Múltipla
+  const [selectedBankIds, setSelectedBankIds] = useState<Set<string>>(new Set());
+  const [selectedFinIds, setSelectedFinIds] = useState<Set<string>>(new Set());
   
   const [searchTermBank, setSearchTermBank] = useState("");
   const [searchTermFin, setSearchTermFin] = useState("");
@@ -66,22 +68,50 @@ const Reconciliation = () => {
     return matches.some(m => m[field] === id);
   };
 
+  const handleToggleBank = (id: string) => {
+    const next = new Set(selectedBankIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelectedBankIds(next);
+  };
+
+  const handleToggleFin = (id: string) => {
+    const next = new Set(selectedFinIds);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    setSelectedFinIds(next);
+  };
+
   const handleManualMatch = async () => {
-    if (!selectedBankId || !selectedFinId || !user) return;
+    if (selectedBankIds.size === 0 || selectedFinIds.size === 0 || !user) return;
+    
+    setIsProcessing(true);
     try {
-      const { error } = await supabase.from("reconciliation_matches").insert({
-        user_id: user.id,
-        bank_statement_id: selectedBankId,
-        financial_entry_id: selectedFinId,
-        match_type: "manual"
+      const groupId = crypto.randomUUID();
+      const newMatches: any[] = [];
+
+      // Criar registros para todas as combinações selecionadas no mesmo grupo
+      selectedBankIds.forEach(bId => {
+        selectedFinIds.forEach(fId => {
+          newMatches.push({
+            user_id: user.id,
+            bank_statement_id: bId,
+            financial_entry_id: fId,
+            match_type: "manual",
+            group_id: groupId
+          });
+        });
       });
+
+      const { error } = await supabase.from("reconciliation_matches").insert(newMatches);
       if (error) throw error;
-      showSuccess("Conciliação realizada!");
-      setSelectedBankId(null);
-      setSelectedFinId(null);
+      
+      showSuccess("Conciliação manual realizada!");
+      setSelectedBankIds(new Set());
+      setSelectedFinIds(new Set());
       fetchData();
     } catch (error: any) {
       showError("Erro ao conciliar: " + error.message);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -98,7 +128,7 @@ const Reconciliation = () => {
     const valTol = Number(rules.value_tolerance || 0.05);
     const dateTol = Number(rules.date_tolerance_days || 1);
 
-    // 1. Tentar conciliação 1:1 exata primeiro
+    // Conciliação 1:1 exata apenas
     unmatchedBank.forEach(b => {
       const bDate = new Date(b.date);
       const match = unmatchedFin.find(f => {
@@ -115,61 +145,15 @@ const Reconciliation = () => {
           user_id: user.id,
           bank_statement_id: b.id,
           financial_entry_id: match.id,
-          match_type: "exact"
+          match_type: "exact",
+          group_id: crypto.randomUUID()
         });
         usedFinIds.add(match.id);
       }
     });
 
-    // 2. Lógica de Agrupamento: Soma de NFs para o mesmo lançamento bancário
-    // Só tentamos nos itens bancários que ainda não foram casados no passo 1
-    const stillUnmatchedBank = unmatchedBank.filter(b => !newMatches.some(m => m.bank_statement_id === b.id));
-    
-    stillUnmatchedBank.forEach(b => {
-      const bDate = new Date(b.date);
-      const bDesc = b.description.toLowerCase();
-
-      // Encontrar todos os lançamentos internos da mesma data que não foram usados
-      const candidates = unmatchedFin.filter(f => {
-        if (usedFinIds.has(f.id)) return false;
-        const fDate = new Date(f.date);
-        return fDate.getTime() === bDate.getTime();
-      });
-
-      // Agrupar candidatos pelo fornecedor (antes do '|')
-      const groups: Record<string, Entry[]> = {};
-      candidates.forEach(f => {
-        const vendor = f.description.split('|')[0].trim().toLowerCase();
-        if (!groups[vendor]) groups[vendor] = [];
-        groups[vendor].push(f);
-      });
-
-      // Verificar se a soma de algum grupo bate com o valor do extrato
-      for (const vendor in groups) {
-        const groupItems = groups[vendor];
-        const sumAmount = groupItems.reduce((acc, curr) => acc + Number(curr.amount), 0);
-        
-        // Se o nome do fornecedor aparece na descrição do banco e o valor bate
-        if (bDesc.includes(vendor) || vendor.includes(bDesc)) {
-          if (Math.abs(sumAmount - Number(b.amount)) <= valTol) {
-            // Conciliar cada item do grupo com este lançamento bancário
-            groupItems.forEach(item => {
-              newMatches.push({
-                user_id: user.id,
-                bank_statement_id: b.id,
-                financial_entry_id: item.id,
-                match_type: "group_sum"
-              });
-              usedFinIds.add(item.id);
-            });
-            break; // Já casamos este item bancário
-          }
-        }
-      }
-    });
-
     if (newMatches.length === 0) {
-      showError("Nenhum novo batimento encontrado.");
+      showError("Nenhuma correspondência exata encontrada.");
       setIsProcessing(false);
       return;
     }
@@ -180,7 +164,7 @@ const Reconciliation = () => {
       showSuccess(`${newMatches.length} conciliações realizadas!`);
       fetchData();
     } catch (error: any) {
-      showError("Erro na conciliação automática: " + error.message);
+      showError("Erro: " + error.message);
     } finally {
       setIsProcessing(false);
     }
@@ -188,6 +172,7 @@ const Reconciliation = () => {
 
   const handleUnmatch = async (matchId: string) => {
     try {
+      // Se for parte de um grupo, poderíamos apagar o grupo todo, mas para ser simples, apagamos o registro individual
       const { error } = await supabase.from("reconciliation_matches").delete().eq("id", matchId);
       if (error) throw error;
       showSuccess("Conciliação desfeita.");
@@ -198,6 +183,11 @@ const Reconciliation = () => {
   };
 
   const formatCurrency = (val: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+  
+  const formatDateBR = (dateStr: string) => {
+    const [year, month, day] = dateStr.split('-');
+    return `${day}/${month}/${year}`;
+  };
 
   const filteredUnmatchedBank = useMemo(() => {
     return bankEntries
@@ -221,8 +211,15 @@ const Reconciliation = () => {
     );
   }
 
-  const totalUnmatchedBank = filteredUnmatchedBank.reduce((acc, curr) => acc + Number(curr.amount), 0);
-  const totalUnmatchedFin = filteredUnmatchedFin.reduce((acc, curr) => acc + Number(curr.amount), 0);
+  const selectedBankTotal = Array.from(selectedBankIds).reduce((acc, id) => {
+    const entry = bankEntries.find(e => e.id === id);
+    return acc + (entry ? Number(entry.amount) : 0);
+  }, 0);
+
+  const selectedFinTotal = Array.from(selectedFinIds).reduce((acc, id) => {
+    const entry = finEntries.find(e => e.id === id);
+    return acc + (entry ? Number(entry.amount) : 0);
+  }, 0);
 
   return (
     <Layout>
@@ -230,7 +227,7 @@ const Reconciliation = () => {
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-3xl font-black text-primary tracking-tight">Conciliação Ativa</h1>
-            <p className="text-muted-foreground">Motor inteligente com suporte a agrupamento de NFs por fornecedor.</p>
+            <p className="text-muted-foreground">Selecione múltiplos itens para conciliar manualmente ou use a automação 1:1.</p>
           </div>
           <div className="flex gap-2 w-full md:w-auto">
             <Button onClick={fetchData} variant="outline" size="sm" className="rounded-xl">
@@ -241,31 +238,29 @@ const Reconciliation = () => {
               variant="default" 
               size="sm" 
               className="bg-indigo-600 hover:bg-indigo-700 rounded-xl"
-              disabled={isProcessing || (filteredUnmatchedBank.length === 0 || filteredUnmatchedFin.length === 0)}
+              disabled={isProcessing}
             >
               {isProcessing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Zap className="mr-2 h-4 w-4" />}
-              Executar Auto-Conciliação
+              Auto-Conciliar (1:1)
             </Button>
           </div>
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Extrato Bancário */}
           <Card className="border-none shadow-xl overflow-hidden rounded-[2rem] bg-white">
             <CardHeader className="bg-blue-600 text-white p-6">
               <div className="flex items-center justify-between mb-2">
-                <CardTitle className="text-xl font-bold flex items-center gap-2">
-                  <div className="h-2 w-2 bg-white rounded-full animate-pulse" />
-                  Extrato Bancário
-                </CardTitle>
+                <CardTitle className="text-xl font-bold">Extrato Bancário</CardTitle>
                 <Badge variant="secondary" className="bg-white/20 text-white border-none rounded-lg px-3 py-1">
-                  {filteredUnmatchedBank.length} pendentes
+                  {selectedBankIds.size} selecionados
                 </Badge>
               </div>
-              <p className="text-blue-100 text-sm font-medium">Total pendente: {formatCurrency(totalUnmatchedBank)}</p>
+              <p className="text-blue-100 text-sm font-medium">Total selecionado: {formatCurrency(selectedBankTotal)}</p>
               <div className="mt-4 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/50" />
                 <Input 
-                  placeholder="Buscar na descrição..." 
+                  placeholder="Buscar..." 
                   className="bg-white/10 border-white/20 text-white placeholder:text-white/40 pl-10 rounded-xl"
                   value={searchTermBank}
                   onChange={(e) => setSearchTermBank(e.target.value)}
@@ -273,11 +268,12 @@ const Reconciliation = () => {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="max-h-[450px] overflow-auto">
+              <div className="max-h-[400px] overflow-auto">
                 <Table>
                   <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                     <TableRow>
-                      <TableHead className="w-24 pl-6">Data</TableHead>
+                      <TableHead className="w-12 pl-6"></TableHead>
+                      <TableHead className="w-24">Data</TableHead>
                       <TableHead>Descrição</TableHead>
                       <TableHead className="text-right pr-6">Valor</TableHead>
                     </TableRow>
@@ -286,39 +282,40 @@ const Reconciliation = () => {
                     {filteredUnmatchedBank.map((entry) => (
                       <TableRow 
                         key={entry.id} 
-                        className={`cursor-pointer transition-all border-none ${selectedBankId === entry.id ? 'bg-blue-50 ring-2 ring-inset ring-blue-600' : 'hover:bg-slate-50'}`}
-                        onClick={() => setSelectedBankId(selectedBankId === entry.id ? null : entry.id)}
+                        className={`cursor-pointer transition-all border-none ${selectedBankIds.has(entry.id) ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
+                        onClick={() => handleToggleBank(entry.id)}
                       >
-                        <TableCell className="text-sm pl-6">{new Date(entry.date).toLocaleDateString('pt-BR')}</TableCell>
+                        <TableCell className="pl-6" onClick={(e) => e.stopPropagation()}>
+                          <Checkbox 
+                            checked={selectedBankIds.has(entry.id)} 
+                            onCheckedChange={() => handleToggleBank(entry.id)}
+                          />
+                        </TableCell>
+                        <TableCell className="text-sm">{formatDateBR(entry.date)}</TableCell>
                         <TableCell className="font-semibold text-slate-700">{entry.description}</TableCell>
                         <TableCell className="text-right font-black text-blue-600 pr-6">{formatCurrency(entry.amount)}</TableCell>
                       </TableRow>
                     ))}
-                    {filteredUnmatchedBank.length === 0 && (
-                      <TableRow><TableCell colSpan={3} className="text-center py-12 text-muted-foreground italic">Nenhuma transação pendente encontrada.</TableCell></TableRow>
-                    )}
                   </TableBody>
                 </Table>
               </div>
             </CardContent>
           </Card>
 
+          {/* Lançamentos Internos */}
           <Card className="border-none shadow-xl overflow-hidden rounded-[2rem] bg-white">
             <CardHeader className="bg-emerald-600 text-white p-6">
               <div className="flex items-center justify-between mb-2">
-                <CardTitle className="text-xl font-bold flex items-center gap-2">
-                  <div className="h-2 w-2 bg-white rounded-full animate-pulse" />
-                  Lançamentos Internos
-                </CardTitle>
+                <CardTitle className="text-xl font-bold">Relatório do Sistema</CardTitle>
                 <Badge variant="secondary" className="bg-white/20 text-white border-none rounded-lg px-3 py-1">
-                  {filteredUnmatchedFin.length} pendentes
+                  {selectedFinIds.size} selecionados
                 </Badge>
               </div>
-              <p className="text-emerald-100 text-sm font-medium">Total pendente: {formatCurrency(totalUnmatchedFin)}</p>
+              <p className="text-emerald-100 text-sm font-medium">Total selecionado: {formatCurrency(selectedFinTotal)}</p>
               <div className="mt-4 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-white/50" />
                 <Input 
-                  placeholder="Buscar na descrição..." 
+                  placeholder="Buscar..." 
                   className="bg-white/10 border-white/20 text-white placeholder:text-white/40 pl-10 rounded-xl"
                   value={searchTermFin}
                   onChange={(e) => setSearchTermFin(e.target.value)}
@@ -326,12 +323,13 @@ const Reconciliation = () => {
               </div>
             </CardHeader>
             <CardContent className="p-0">
-              <div className="max-h-[450px] overflow-auto">
+              <div className="max-h-[400px] overflow-auto">
                 <Table>
                   <TableHeader className="sticky top-0 bg-white z-10 shadow-sm">
                     <TableRow>
-                      <TableHead className="w-24 pl-6">Data</TableHead>
-                      <TableHead>Descrição (Fornecedor | Detalhe)</TableHead>
+                      <TableHead className="w-12 pl-6"></TableHead>
+                      <TableHead className="w-24">Data</TableHead>
+                      <TableHead>Histórico</TableHead>
                       <TableHead className="text-right pr-6">Valor</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -339,19 +337,20 @@ const Reconciliation = () => {
                     {filteredUnmatchedFin.map((entry) => (
                       <TableRow 
                         key={entry.id} 
-                        className={`cursor-pointer transition-all border-none ${selectedFinId === entry.id ? 'bg-emerald-50 ring-2 ring-inset ring-emerald-600' : 'hover:bg-slate-50'}`}
-                        onClick={() => setSelectedFinId(selectedFinId === entry.id ? null : entry.id)}
+                        className={`cursor-pointer transition-all border-none ${selectedFinIds.has(entry.id) ? 'bg-emerald-50' : 'hover:bg-slate-50'}`}
+                        onClick={() => handleToggleFin(entry.id)}
                       >
-                        <TableCell className="text-sm pl-6">{new Date(entry.date).toLocaleDateString('pt-BR')}</TableCell>
-                        <TableCell className="font-semibold text-slate-700">
-                          {entry.description}
+                        <TableCell className="pl-6" onClick={(e) => e.stopPropagation()}>
+                          <Checkbox 
+                            checked={selectedFinIds.has(entry.id)} 
+                            onCheckedChange={() => handleToggleFin(entry.id)}
+                          />
                         </TableCell>
+                        <TableCell className="text-sm">{formatDateBR(entry.date)}</TableCell>
+                        <TableCell className="font-semibold text-slate-700">{entry.description}</TableCell>
                         <TableCell className="text-right font-black text-emerald-600 pr-6">{formatCurrency(entry.amount)}</TableCell>
                       </TableRow>
                     ))}
-                    {filteredUnmatchedFin.length === 0 && (
-                      <TableRow><TableCell colSpan={3} className="text-center py-12 text-muted-foreground italic">Tudo limpo por aqui.</TableCell></TableRow>
-                    )}
                   </TableBody>
                 </Table>
               </div>
@@ -359,11 +358,20 @@ const Reconciliation = () => {
           </Card>
         </div>
 
-        <div className="flex justify-center py-6">
+        <div className="flex flex-col items-center justify-center py-6 gap-4">
+          <div className="text-center">
+            <p className="text-sm font-bold text-muted-foreground uppercase tracking-widest">Diferença entre Seleções</p>
+            <p className={cn(
+              "text-3xl font-black",
+              Math.abs(selectedBankTotal - selectedFinTotal) < 0.01 ? "text-emerald-500" : "text-destructive"
+            )}>
+              {formatCurrency(selectedBankTotal - selectedFinTotal)}
+            </p>
+          </div>
           <Button 
             size="lg" 
-            className="px-12 py-8 text-xl font-black rounded-3xl shadow-2xl transition-all active:scale-95 bg-primary hover:scale-105 disabled:opacity-50"
-            disabled={!selectedBankId || !selectedFinId}
+            className="px-12 py-8 text-xl font-black rounded-3xl shadow-2xl transition-all active:scale-95 bg-primary hover:scale-105"
+            disabled={selectedBankIds.size === 0 || selectedFinIds.size === 0 || isProcessing}
             onClick={handleManualMatch}
           >
             <ArrowRightLeft className="mr-4 h-8 w-8" />
@@ -397,15 +405,15 @@ const Reconciliation = () => {
                         <TableRow key={m.id} className="border-b border-slate-50 last:border-0">
                           <TableCell className="pl-6 py-4">
                             <div className="font-bold text-slate-800">{b?.description || "N/A"}</div>
-                            <div className="text-xs font-black text-blue-600 mt-1">{formatCurrency(b?.amount || 0)} • {new Date(b?.date || "").toLocaleDateString('pt-BR')}</div>
+                            <div className="text-xs font-black text-blue-600 mt-1">{formatCurrency(b?.amount || 0)} • {b ? formatDateBR(b.date) : ""}</div>
                           </TableCell>
                           <TableCell className="py-4">
                             <div className="font-bold text-slate-800">{f?.description || "N/A"}</div>
-                            <div className="text-xs font-black text-emerald-600 mt-1">{formatCurrency(f?.amount || 0)} • {new Date(f?.date || "").toLocaleDateString('pt-BR')}</div>
+                            <div className="text-xs font-black text-emerald-600 mt-1">{formatCurrency(f?.amount || 0)} • {f ? formatDateBR(f.date) : ""}</div>
                           </TableCell>
                           <TableCell className="py-4">
                             <Badge variant={m.match_type === 'manual' ? 'outline' : 'secondary'} className="rounded-lg font-bold">
-                              {m.match_type === 'manual' ? 'Manual' : (m.match_type === 'group_sum' ? 'Agrupado' : 'Automático')}
+                              {m.match_type === 'manual' ? 'Manual' : 'Automático'}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right pr-6 py-4">

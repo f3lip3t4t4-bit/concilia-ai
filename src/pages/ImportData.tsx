@@ -42,6 +42,7 @@ const ImportData = () => {
       reader.onload = (e) => {
         try {
           const data = new Uint8Array(e.target?.result as ArrayBuffer);
+          // cellDates: true converte para objeto Date
           const workbook = XLSX.read(data, { type: "array", cellDates: true });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
@@ -58,10 +59,20 @@ const ImportData = () => {
 
   const formatDate = (val: any) => {
     if (!val) return null;
+    
     let d: Date;
+    
     if (val instanceof Date) {
-      d = new Date(val.getTime() + (val.getTimezoneOffset() * 60000));
+      // Ajuste crucial: adicionar o offset do fuso horário para evitar que 01/10 vire 30/09
+      const userOffset = val.getTimezoneOffset() * 60000;
+      d = new Date(val.getTime() + userOffset);
+      // Forçamos o horário para o meio do dia para segurança extra
       d.setHours(12, 0, 0, 0);
+    } else if (typeof val === 'number') {
+      // Caso o Excel venha como número serial
+      d = new Date((val - 25569) * 86400 * 1000);
+      const userOffset = d.getTimezoneOffset() * 60000;
+      d = new Date(d.getTime() + userOffset);
     } else if (typeof val === 'string' && val.includes('/')) {
       const parts = val.split('/');
       if (parts.length === 3) {
@@ -74,10 +85,14 @@ const ImportData = () => {
     } else {
       d = new Date(val);
     }
+
     if (isNaN(d.getTime())) return null;
+
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
+    
+    // Armazenamos sempre como YYYY-MM-DD para o banco de dados
     return `${year}-${month}-${day}`;
   };
 
@@ -96,18 +111,17 @@ const ImportData = () => {
   };
 
   const processInternalSystemRows = (rows: any[][], userId: string) => {
-    // Conforme solicitado, cabeçalho inicia na célula A2 (índice 1 do array)
-    // Colunas: Data(0), Fazenda(1), Conta(2), Natureza(3), Grupo(4), Sub Grupo(5), Tp Dcto(6), Histórico(7), Num Dcto(8), Entrada(9), Saída(10)
+    // Cabeçalho inicia na célula A2 (índice 1)
     if (rows.length < 2) return [];
 
-    return rows.slice(2) // Pula as 2 primeiras linhas (título e cabeçalho)
+    return rows.slice(2)
       .map(row => {
         const date = formatDate(row[0]);
         const history = String(row[7] || "").trim();
         const entrada = parseAmount(row[9]);
         const saida = parseAmount(row[10]);
         
-        // Se tiver entrada, valor positivo. Se tiver saída, valor negativo.
+        // Se Entrada > 0, valor positivo. Se Saída > 0, valor negativo.
         const amount = entrada !== 0 ? Math.abs(entrada) : (saida !== 0 ? -Math.abs(saida) : 0);
 
         if (!date || !history || amount === 0) return null;
@@ -173,7 +187,7 @@ const ImportData = () => {
 
   const handleUpload = async () => {
     if (!bankStatementFile || !financialEntriesFile || !user) {
-      showError("Selecione os arquivos de extrato e lançamentos.");
+      showError("Selecione os arquivos.");
       return;
     }
 
@@ -185,10 +199,6 @@ const ImportData = () => {
       const rawFinRows = await parseExcel(financialEntriesFile);
       const formattedFinancialData = processInternalSystemRows(rawFinRows, user.id);
 
-      if (formattedBankData.length === 0 && formattedFinancialData.length === 0) {
-        throw new Error("Dados não identificados. Verifique se o modelo do banco selecionado está correto.");
-      }
-
       if (formattedBankData.length > 0) {
         const { error } = await supabase.from("bank_statements").insert(formattedBankData);
         if (error) throw error;
@@ -199,7 +209,7 @@ const ImportData = () => {
         if (error) throw error;
       }
 
-      showSuccess(`Importados ${formattedBankData.length} itens bancários e ${formattedFinancialData.length} internos.`);
+      showSuccess("Sincronização concluída!");
       setBankStatementFile(null);
       setFinancialEntriesFile(null);
       navigate("/reconciliation");
@@ -211,7 +221,7 @@ const ImportData = () => {
   };
 
   const handleClearData = async () => {
-    if (!user || !window.confirm("Deseja apagar todos os dados importados?")) return;
+    if (!user || !window.confirm("Zerar base de dados?")) return;
     setIsClearing(true);
     try {
       await Promise.all([
@@ -232,7 +242,7 @@ const ImportData = () => {
       <div className="max-w-4xl mx-auto space-y-8">
         <header className="text-center">
           <h1 className="text-4xl font-black text-primary mb-2 tracking-tight">Gestão de Dados</h1>
-          <p className="text-muted-foreground text-lg">Sincronização precisa de extratos e ERP.</p>
+          <p className="text-muted-foreground text-lg">Datas e valores validados para o padrão Brasil.</p>
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -254,7 +264,7 @@ const ImportData = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="padrao">Inteligente (Tenta adivinhar)</SelectItem>
+                      <SelectItem value="padrao">Inteligente (Auto-detecção)</SelectItem>
                       <SelectItem value="sicredi">Sicredi Oficial (.xlsx)</SelectItem>
                     </SelectContent>
                   </Select>
@@ -278,7 +288,6 @@ const ImportData = () => {
                     onChange={handleFinancialEntriesChange} 
                     className="rounded-2xl h-16 bg-slate-50 border-slate-200 pt-4" 
                   />
-                  <p className="text-[10px] text-muted-foreground mt-1 px-2 italic">O sistema espera cabeçalho fixo na célula A2.</p>
                 </div>
               </div>
 
@@ -298,9 +307,6 @@ const ImportData = () => {
                 <Trash2 size={22} />
                 Limpar Base
               </CardTitle>
-              <CardDescription className="text-slate-600 mt-2">
-                Limpe os dados antes de uma nova importação.
-              </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               <Button
@@ -314,15 +320,6 @@ const ImportData = () => {
             </CardContent>
           </Card>
         </div>
-
-        <Alert className="rounded-2xl border-blue-200 bg-blue-50/50 text-blue-900">
-          <Info className="h-5 w-5 text-blue-600" />
-          <AlertTitle className="font-bold mb-2">Padrão do Sistema Interno:</AlertTitle>
-          <AlertDescription>
-            Configurado para colunas: Data(A), Histórico(H), Entrada(J) e Saída(K).<br/>
-            <strong>Dica:</strong> Saídas são convertidas automaticamente para valores negativos para bater com o extrato.
-          </AlertDescription>
-        </Alert>
       </div>
     </Layout>
   );
