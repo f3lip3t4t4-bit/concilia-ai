@@ -12,7 +12,6 @@ import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/components/auth/SessionContextProvider";
 import * as XLSX from "xlsx";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useNavigate } from "react-router-dom";
 
 const ImportData = () => {
@@ -42,7 +41,6 @@ const ImportData = () => {
       reader.onload = (e) => {
         try {
           const data = new Uint8Array(e.target?.result as ArrayBuffer);
-          // cellDates: true converte para objeto Date
           const workbook = XLSX.read(data, { type: "array", cellDates: true });
           const firstSheetName = workbook.SheetNames[0];
           const worksheet = workbook.Sheets[firstSheetName];
@@ -59,17 +57,12 @@ const ImportData = () => {
 
   const formatDate = (val: any) => {
     if (!val) return null;
-    
     let d: Date;
-    
     if (val instanceof Date) {
-      // Ajuste crucial: adicionar o offset do fuso horário para evitar que 01/10 vire 30/09
       const userOffset = val.getTimezoneOffset() * 60000;
       d = new Date(val.getTime() + userOffset);
-      // Forçamos o horário para o meio do dia para segurança extra
       d.setHours(12, 0, 0, 0);
     } else if (typeof val === 'number') {
-      // Caso o Excel venha como número serial
       d = new Date((val - 25569) * 86400 * 1000);
       const userOffset = d.getTimezoneOffset() * 60000;
       d = new Date(d.getTime() + userOffset);
@@ -85,14 +78,10 @@ const ImportData = () => {
     } else {
       d = new Date(val);
     }
-
     if (isNaN(d.getTime())) return null;
-
     const year = d.getFullYear();
     const month = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-    
-    // Armazenamos sempre como YYYY-MM-DD para o banco de dados
     return `${year}-${month}-${day}`;
   };
 
@@ -110,33 +99,75 @@ const ImportData = () => {
     return isNaN(num) ? 0 : num;
   };
 
-  const processInternalSystemRows = (rows: any[][], userId: string) => {
-    // Cabeçalho inicia na célula A2 (índice 1)
-    if (rows.length < 2) return [];
+  // Novo processador para Sicoob
+  const parseSicoobAmount = (val: any) => {
+    if (!val) return 0;
+    let str = String(val).trim().toUpperCase();
+    
+    // Identifica se é Débito ou Crédito
+    const isDebit = str.endsWith('D') || str.startsWith('-');
+    const isCredit = str.endsWith('C');
 
+    // Limpa letras e caracteres especiais, mantendo o ponto/vírgula
+    let cleanStr = str.replace(/[CD]/g, '').replace(/[^0-9,-]/g, '');
+    
+    // Converte formato brasileiro para decimal
+    if (cleanStr.includes(',') && cleanStr.includes('.')) {
+      cleanStr = cleanStr.replace(/\./g, '').replace(',', '.');
+    } else if (cleanStr.includes(',')) {
+      cleanStr = cleanStr.replace(',', '.');
+    }
+
+    let num = parseFloat(cleanStr);
+    if (isNaN(num)) return 0;
+
+    // Garante o sinal correto: Se for débito e o número for positivo, inverte.
+    if (isDebit && num > 0) num = num * -1;
+    // Se for crédito e o número for negativo (raro no Sicoob mas possível), inverte para positivo.
+    if (isCredit && num < 0) num = Math.abs(num);
+
+    return num;
+  };
+
+  const processInternalSystemRows = (rows: any[][], userId: string) => {
+    if (rows.length < 2) return [];
     return rows.slice(2)
       .map(row => {
         const date = formatDate(row[0]);
         const history = String(row[7] || "").trim();
         const entrada = parseAmount(row[9]);
         const saida = parseAmount(row[10]);
-        
-        // Se Entrada > 0, valor positivo. Se Saída > 0, valor negativo.
         const amount = entrada !== 0 ? Math.abs(entrada) : (saida !== 0 ? -Math.abs(saida) : 0);
-
         if (!date || !history || amount === 0) return null;
-
-        return {
-          user_id: userId,
-          date,
-          description: history,
-          amount,
-        };
+        return { user_id: userId, date, description: history, amount };
       })
       .filter(item => item !== null);
   };
 
   const processBankRows = (rows: any[][], userId: string, type: string) => {
+    if (type === "sicoob") {
+      // Sicoob: Cabeçalho na linha 2 (índice 1), dados na linha 3 (índice 2)
+      // Coluna A: Data (index 0), Coluna C: Histórico (index 2), Coluna D: Valor (index 3)
+      return rows.slice(2)
+        .map(row => {
+          const date = formatDate(row[0]);
+          const description = String(row[2] || "").trim();
+          const amount = parseSicoobAmount(row[3]);
+
+          // Filtros: Desconsiderar linhas sem data ou que contenham "SALDO"
+          if (!date || description.toUpperCase().includes("SALDO") || amount === 0) return null;
+
+          return {
+            user_id: userId,
+            date,
+            description,
+            amount,
+          };
+        })
+        .filter(item => item !== null);
+    }
+
+    // Lógica padrão para outros bancos
     let headerIndex = -1;
     let colMap: Record<string, number> = {};
 
@@ -175,12 +206,7 @@ const ImportData = () => {
         const description = String(row[colMap.desc] || "").trim();
         const amount = parseAmount(row[colMap.amount]);
         if (!date || !description || amount === 0) return null;
-        return {
-          user_id: userId,
-          date,
-          description,
-          amount,
-        };
+        return { user_id: userId, date, description, amount };
       })
       .filter(item => item !== null);
   };
@@ -209,7 +235,7 @@ const ImportData = () => {
         if (error) throw error;
       }
 
-      showSuccess("Sincronização concluída!");
+      showSuccess(`Sincronização concluída! (${formattedBankData.length} itens bancários)`);
       setBankStatementFile(null);
       setFinancialEntriesFile(null);
       navigate("/reconciliation");
@@ -242,7 +268,7 @@ const ImportData = () => {
       <div className="max-w-4xl mx-auto space-y-8">
         <header className="text-center">
           <h1 className="text-4xl font-black text-primary mb-2 tracking-tight">Gestão de Dados</h1>
-          <p className="text-muted-foreground text-lg">Datas e valores validados para o padrão Brasil.</p>
+          <p className="text-muted-foreground text-lg">Suporte a múltiplos bancos e validação automática.</p>
         </header>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -264,7 +290,8 @@ const ImportData = () => {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="padrao">Inteligente (Auto-detecção)</SelectItem>
+                      <SelectItem value="padrao">Auto-detecção (Genérico)</SelectItem>
+                      <SelectItem value="sicoob">Sicoob Oficial (.xlsx)</SelectItem>
                       <SelectItem value="sicredi">Sicredi Oficial (.xlsx)</SelectItem>
                     </SelectContent>
                   </Select>
@@ -272,22 +299,12 @@ const ImportData = () => {
 
                 <div className="grid w-full items-center gap-3">
                   <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">Extrato Bancário (.xlsx)</Label>
-                  <Input 
-                    type="file" 
-                    accept=".xlsx, .xls" 
-                    onChange={handleBankStatementChange} 
-                    className="rounded-2xl h-16 bg-slate-50 border-slate-200 pt-4" 
-                  />
+                  <Input type="file" accept=".xlsx, .xls" onChange={handleBankStatementChange} className="rounded-2xl h-16 bg-slate-50 border-slate-200 pt-4" />
                 </div>
 
                 <div className="grid w-full items-center gap-3">
                   <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">Relatório do Sistema (.xlsx)</Label>
-                  <Input 
-                    type="file" 
-                    accept=".xlsx, .xls" 
-                    onChange={handleFinancialEntriesChange} 
-                    className="rounded-2xl h-16 bg-slate-50 border-slate-200 pt-4" 
-                  />
+                  <Input type="file" accept=".xlsx, .xls" onChange={handleFinancialEntriesChange} className="rounded-2xl h-16 bg-slate-50 border-slate-200 pt-4" />
                 </div>
               </div>
 
