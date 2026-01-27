@@ -3,7 +3,7 @@
 import React, { useState, useEffect, createContext, useContext } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { showSuccess, showError } from "@/utils/toast";
 
 interface Subscription {
@@ -27,6 +27,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const fetchSubscription = async (userId: string) => {
     const { data } = await supabase
@@ -52,9 +53,13 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         setIsLoading(false);
 
         if (event === "SIGNED_IN") {
-          showSuccess("Login realizado!");
+          showSuccess("Login realizado com sucesso!");
+          // Só redireciona se estiver na tela de login
+          if (location.pathname === "/login") {
+            navigate("/", { replace: true });
+          }
         } else if (event === "SIGNED_OUT") {
-          navigate("/login");
+          navigate("/login", { replace: true });
         }
       }
     );
@@ -67,7 +72,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
     });
 
     return () => authListener.subscription.unsubscribe();
-  }, [navigate]);
+  }, [navigate, location.pathname]);
 
   return (
     <SessionContext.Provider value={{ 

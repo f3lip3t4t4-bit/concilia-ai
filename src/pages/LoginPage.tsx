@@ -1,13 +1,28 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import { Auth } from "@supabase/auth-ui-react";
 import { ThemeSupa } from "@supabase/auth-ui-shared";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Lock } from "lucide-react";
+import { useSession } from "@/components/auth/SessionContextProvider";
+import { useNavigate } from "react-router-dom";
 
 const LoginPage = () => {
+  const { session, isLoading } = useSession();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!isLoading && session) {
+      navigate("/", { replace: true });
+    }
+  }, [session, isLoading, navigate]);
+
+  if (isLoading) {
+    return null; // Evita flash da tela de login para usuários já autenticados
+  }
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md rounded-xl shadow-lg border-none p-6 bg-card">
@@ -48,7 +63,6 @@ const LoginPage = () => {
                 },
               },
             }}
-            // Removido theme="light" para permitir que o tema se adapte automaticamente
             localization={{
               variables: {
                 sign_in: {
@@ -71,32 +85,6 @@ const LoginPage = () => {
                   social_auth_button_text: "Registrar com {{provider}}",
                   link_text: "Não tem uma conta? Registrar",
                   confirmation_text: "Verifique seu e-mail para o link de confirmação",
-                },
-                forgotten_password: {
-                  email_label: "Seu e-mail",
-                  email_input_placeholder: "Digite seu e-mail para redefinir",
-                  button_label: "Enviar instruções de redefinição",
-                  link_text: "Esqueceu sua senha?",
-                  confirmation_text: "Verifique seu e-mail para o link de redefinição de senha",
-                },
-                update_password: {
-                  password_label: "Nova senha",
-                  password_input_placeholder: "Digite sua nova senha",
-                  button_label: "Atualizar senha",
-                  confirmation_text: "Sua senha foi atualizada",
-                },
-                magic_link: {
-                  email_input_placeholder: "Digite seu e-mail",
-                  button_label: "Enviar link mágico",
-                  link_text: "Enviar um link mágico",
-                  confirmation_text: "Verifique seu e-mail para o link mágico",
-                },
-                verify_otp: {
-                  email_input_placeholder: "Digite seu e-mail",
-                  phone_input_placeholder: "Digite seu número de telefone",
-                  token_input_placeholder: "Código OTP",
-                  button_label: "Verificar OTP",
-                  link_text: "Já tem um código OTP? Verifique",
                 },
               },
             }}
