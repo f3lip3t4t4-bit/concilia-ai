@@ -4,7 +4,7 @@ import React, { useState, useEffect, createContext, useContext } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { useNavigate, useLocation } from "react-router-dom";
-import { showSuccess, showError } from "@/utils/toast";
+import { showSuccess } from "@/utils/toast";
 
 interface Subscription {
   status: string;
@@ -46,6 +46,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   };
 
   useEffect(() => {
+    // 1. Verificar sessão inicial
     const initSession = async () => {
       try {
         const { data: { session: initialSession } } = await supabase.auth.getSession();
@@ -53,28 +54,34 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         setUser(initialSession?.user || null);
         
         if (initialSession?.user) {
-          await fetchSubscription(initialSession.user.id);
+          // Busca assinatura em segundo plano
+          fetchSubscription(initialSession.user.id);
         }
       } catch (err) {
         console.error("Erro na inicialização da sessão:", err);
       } finally {
+        // Importante: Libera o loading mesmo se a assinatura ainda não voltou
         setIsLoading(false);
       }
     };
 
     initSession();
 
+    // 2. Ouvir mudanças de estado (Login/Logout)
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
+        const hasUserChanged = currentSession?.user?.id !== user?.id;
+        
         setSession(currentSession);
         setUser(currentSession?.user || null);
         
-        if (currentSession?.user) {
-          await fetchSubscription(currentSession.user.id);
-        } else {
+        if (currentSession?.user && hasUserChanged) {
+          fetchSubscription(currentSession.user.id);
+        } else if (!currentSession) {
           setSubscription(null);
         }
         
+        // Garante que o loading seja falso após qualquer evento de auth
         setIsLoading(false);
 
         if (event === "SIGNED_IN") {
@@ -89,7 +96,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
     );
 
     return () => authListener.subscription.unsubscribe();
-  }, [navigate, location.pathname]);
+  }, [navigate, location.pathname, user?.id]);
 
   return (
     <SessionContext.Provider value={{ 
