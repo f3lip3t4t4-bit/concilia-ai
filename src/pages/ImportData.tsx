@@ -7,12 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge"; // Importação que estava faltando
 import { Building2, Loader2, Trash2, CheckCircle2, AlertTriangle, FileSpreadsheet } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/components/auth/SessionContextProvider";
 import * as XLSX from "xlsx";
 import { useNavigate } from "react-router-dom";
+import { cn } from "@/lib/utils";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,13 +28,27 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const ImportData = () => {
-  const { user } = useSession();
+  const { user, isLoading } = useSession();
   const navigate = useNavigate();
   const [bankType, setBankType] = useState("padrao");
   const [bankStatementFile, setBankStatementFile] = useState<File | null>(null);
   const [financialEntriesFile, setFinancialEntriesFile] = useState<File | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+
+  // Se a sessão ainda estiver carregando, mostramos um loading simples
+  if (isLoading) {
+    return (
+      <Layout>
+        <div className="flex items-center justify-center h-[60vh]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </Layout>
+    );
+  }
+
+  // Se por algum motivo o usuário não existir (proteção extra)
+  if (!user) return null;
 
   const handleBankStatementChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.files && event.target.files[0]) {
@@ -150,7 +166,7 @@ const ImportData = () => {
     let headerIndex = -1;
     let colMap: Record<string, number> = {};
     for (let i = 0; i < Math.min(rows.length, 10); i++) {
-      const row = rows[i].map(c => String(c || "").toLowerCase().trim());
+      const row = (rows[i] || []).map(c => String(c || "").toLowerCase().trim());
       if (type === "sicredi") {
         if (row.some(c => c === "data") && row.some(c => c.includes("descrição")) && row.some(c => c.includes("valor (r$)"))) {
           headerIndex = i;
