@@ -9,6 +9,8 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders })
 
+  const functionName = "mercadopago-subscription";
+  
   try {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) throw new Error('Cabeçalho de autorização ausente')
@@ -22,43 +24,59 @@ serve(async (req) => {
     const { data: { user } } = await supabaseClient.auth.getUser()
     if (!user) throw new Error('Usuário não autenticado')
 
-    const { name, tax_id } = await req.json()
-    if (!name || !tax_id) throw new Error('Nome e CPF/CNPJ são obrigatórios')
+    const body = await req.json()
+    const { name, tax_id } = body
+    
+    console.log(`[${functionName}] Iniciando checkout para:`, { email: user.email, name });
 
     const MP_ACCESS_TOKEN = Deno.env.get('MERCADO_PAGO_ACCESS_TOKEN')
     if (!MP_ACCESS_TOKEN) {
-      throw new Error('MERCADO_PAGO_ACCESS_TOKEN não configurado no Supabase');
+      console.error(`[${functionName}] Erro: MERCADO_PAGO_ACCESS_TOKEN não encontrado nos Secrets.`);
+      throw new Error('Configuração pendente: Token do Mercado Pago não encontrado no Supabase.');
     }
 
     // 1. Criar/Buscar Customer no MP
+    const cleanTaxId = tax_id.replace(/\D/g, '');
+    const idType = cleanTaxId.length > 11 ? 'CNPJ' : 'CPF';
+
+    console.log(`[${functionName}] Verificando/Criando cliente no MP...`);
+    
     const customerResp = await fetch('https://api.mercadopago.com/v1/customers', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+      headers: { 
+        'Authorization': `Bearer ${MP_ACCESS_TOKEN}`, 
+        'Content-Type': 'application/json' 
+      },
       body: JSON.stringify({ 
         email: user.email, 
         first_name: name, 
         identification: { 
-          type: tax_id.replace(/\D/g, '').length > 11 ? 'CNPJ' : 'CPF', 
-          number: tax_id.replace(/\D/g, '') 
+          type: idType, 
+          number: cleanTaxId 
         } 
       })
     })
     
-    let customer = await customerResp.json()
-    let customerId = customer.id
+    let customerData = await customerResp.json()
+    let customerId = customerData.id
 
-    // Se o cliente já existir, buscamos pelo e-mail
-    if (customerResp.status === 400 && customer.cause?.[0]?.code === "already_exists_customer") {
+    if (customerResp.status === 400 && customerData.cause?.[0]?.code === "already_exists_customer") {
+       console.log(`[${functionName}] Cliente já existe, buscando ID...`);
        const searchResp = await fetch(`https://api.mercadopago.com/v1/customers/search?email=${user.email}`, {
          headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}` }
        })
-       const searchData = await searchResp.json()
-       customerId = searchData.results?.[0]?.id
+       const searchResult = await searchResp.json()
+       customerId = searchResult.results?.[0]?.id
+    } else if (customerResp.status >= 400) {
+      console.error(`[${functionName}] Erro ao criar cliente:`, customerData);
+      throw new Error(`Mercado Pago (Cliente): ${customerData.message || 'Erro desconhecido'}`);
     }
 
-    if (!customerId) throw new Error('Erro ao processar cliente no Mercado Pago')
+    if (!customerId) throw new Error('Não foi possível identificar o cliente no Mercado Pago.');
 
     // 2. Criar Assinatura (Pre-approval)
+    console.log(`[${functionName}] Gerando link de assinatura...`);
+    
     const subBody = {
       reason: "Assinatura Concilia Pro",
       external_reference: user.id,
@@ -69,27 +87,35 @@ serve(async (req) => {
         transaction_amount: 49.90,
         currency_id: "BRL"
       },
+      // Usando uma URL genérica de retorno ou a própria URL do projeto
       back_url: "https://klokjxcaeamgbfowmbqf.supabase.co", 
       status: "pending"
     }
 
     const subResp = await fetch('https://api.mercadopago.com/preapproval', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+      headers: { 
+        'Authorization': `Bearer ${MP_ACCESS_TOKEN}`, 
+        'Content-Type': 'application/json' 
+      },
       body: JSON.stringify(subBody)
     })
+    
     const subscription = await subResp.json()
 
     if (subResp.status >= 400) {
-      throw new Error(`Erro MP: ${subscription.message || 'Falha na assinatura'}`)
+      console.error(`[${functionName}] Erro ao criar assinatura:`, subscription);
+      throw new Error(`Mercado Pago (Assinatura): ${subscription.message || 'Falha ao gerar link de pagamento'}`);
     }
 
     // 3. Salvar no Banco
+    console.log(`[${functionName}] Salvando registro de assinatura pendente...`);
     await supabaseClient.from('subscriptions').upsert({
       user_id: user.id,
       customer_id_mp: customerId,
       subscription_id_mp: subscription.id,
-      status: 'pending'
+      status: 'pending',
+      updated_at: new Date().toISOString()
     })
 
     return new Response(JSON.stringify({ init_point: subscription.init_point }), {
@@ -97,6 +123,7 @@ serve(async (req) => {
     })
 
   } catch (error) {
+    console.error(`[mercadopago-subscription] ERRO CRÍTICO:`, error.message);
     return new Response(JSON.stringify({ error: error.message }), { 
       status: 400, 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
