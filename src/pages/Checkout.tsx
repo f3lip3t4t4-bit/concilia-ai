@@ -20,33 +20,30 @@ const Checkout = () => {
       return;
     }
     setLoading(true);
-    console.log("Iniciando processo de checkout...", formData);
+    
+    // Captura a URL base atual (ex: http://localhost:8080 ou a URL do Dyad)
+    const origin = window.location.origin;
 
     try {
       const { data, error } = await supabase.functions.invoke('mercadopago-subscription', {
-        body: formData
+        body: { 
+          ...formData,
+          redirect_url: origin 
+        }
       });
 
-      if (error) {
-        console.error("Erro retornado pelo Supabase Invoke:", error);
-        throw error;
-      }
+      if (error) throw error;
       
-      console.log("Resposta da Edge Function:", data);
-
-      if (data?.error) {
-        throw new Error(data.error);
-      }
+      if (data?.error) throw new Error(data.error);
 
       if (data?.init_point) {
-        console.log("Redirecionando para:", data.init_point);
         window.location.href = data.init_point;
       } else {
-        throw new Error("Link de checkout não gerado pelo servidor.");
+        throw new Error("Link de checkout não gerado.");
       }
     } catch (err: any) {
-      console.error("Erro completo capturado no catch:", err);
-      showError(err.message || "Erro ao iniciar checkout. Verifique o console do navegador.");
+      console.error("Erro no checkout:", err);
+      showError(err.message || "Erro ao iniciar checkout.");
     } finally {
       setLoading(false);
     }
@@ -79,8 +76,8 @@ const Checkout = () => {
                 "Relatórios de Auditoria",
                 "Painel de Regras Customizáveis"
               ].map(item => (
-                <div key={item} className="flex items-center gap-3 font-bold">
-                  <div className="h-6 w-6 rounded-full bg-white/20 flex items-center justify-center"><Check size={14} /></div>
+                <div key={item} className="flex items-center gap-3 font-bold text-sm sm:text-base">
+                  <div className="h-6 w-6 rounded-full bg-white/20 flex items-center justify-center flex-shrink-0"><Check size={14} /></div>
                   {item}
                 </div>
               ))}
@@ -92,7 +89,7 @@ const Checkout = () => {
               <CardTitle className="text-2xl font-black flex items-center gap-2">
                 <ShieldCheck className="text-blue-600" /> Seus Dados
               </CardTitle>
-              <CardDescription className="font-medium">Necessário para emissão da nota e MP.</CardDescription>
+              <CardDescription className="font-medium">Necessário para identificação no Mercado Pago.</CardDescription>
             </CardHeader>
             <CardContent className="p-0 space-y-6">
               <div className="space-y-2">

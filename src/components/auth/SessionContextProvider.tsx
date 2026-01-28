@@ -30,15 +30,40 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const location = useLocation();
 
   const fetchSubscription = async (userId: string) => {
-    const { data } = await supabase
-      .from("subscriptions")
-      .select("status, paid_until")
-      .eq("user_id", userId)
-      .maybeSingle();
-    setSubscription(data);
+    try {
+      const { data, error } = await supabase
+        .from("subscriptions")
+        .select("status, paid_until")
+        .eq("user_id", userId)
+        .maybeSingle();
+      
+      if (error) throw error;
+      setSubscription(data);
+    } catch (err) {
+      console.error("Erro ao buscar assinatura:", err);
+      setSubscription(null);
+    }
   };
 
   useEffect(() => {
+    const initSession = async () => {
+      try {
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        setSession(initialSession);
+        setUser(initialSession?.user || null);
+        
+        if (initialSession?.user) {
+          await fetchSubscription(initialSession.user.id);
+        }
+      } catch (err) {
+        console.error("Erro na inicialização da sessão:", err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    initSession();
+
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
         setSession(currentSession);
@@ -53,8 +78,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         setIsLoading(false);
 
         if (event === "SIGNED_IN") {
-          showSuccess("Login realizado com sucesso!");
-          // Só redireciona se estiver na tela de login
+          showSuccess("Bem-vindo!");
           if (location.pathname === "/login") {
             navigate("/", { replace: true });
           }
@@ -63,13 +87,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         }
       }
     );
-
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user || null);
-      if (session?.user) fetchSubscription(session.user.id);
-      setIsLoading(false);
-    });
 
     return () => authListener.subscription.unsubscribe();
   }, [navigate, location.pathname]);
