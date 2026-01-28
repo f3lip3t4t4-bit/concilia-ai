@@ -10,14 +10,14 @@ serve(async (req) => {
   try {
     const body = await req.json()
     const { action, data, type } = body
-    const MP_ACCESS_TOKEN = Deno.env.get('MERCADO_PAGO_ACCESS_TOKEN')
+    const MERCADO_PAGO_ACCESS_TOKEN = Deno.env.get('MERCADO_PAGO_ACCESS_TOKEN')
 
     console.log(`[mercadopago-webhook] Evento recebido: ${type} - ${action}`, { data })
 
     if (type === 'payment') {
       // 1. Validar pagamento direto na API do MP (Segurança)
       const paymentResp = await fetch(`https://api.mercadopago.com/v1/payments/${data.id}`, {
-        headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}` }
+        headers: { 'Authorization': `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}` }
       })
       const payment = await paymentResp.json()
 

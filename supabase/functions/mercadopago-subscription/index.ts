@@ -32,8 +32,8 @@ serve(async (req) => {
     // Se não vier redirect_url, usa a URL do projeto por segurança
     const finalBackUrl = redirect_url || "https://klokjxcaeamgbfowmbqf.supabase.co";
 
-    const MP_ACCESS_TOKEN = Deno.env.get('MERCADO_PAGO_ACCESS_TOKEN');
-    if (!MP_ACCESS_TOKEN) throw new Error('Configuração de API ausente.');
+    const MERCADO_PAGO_ACCESS_TOKEN = Deno.env.get('MERCADO_PAGO_ACCESS_TOKEN');
+    if (!MERCADO_PAGO_ACCESS_TOKEN) throw new Error('Configuração de API ausente.');
 
     // 1. Cliente MP
     const cleanTaxId = tax_id.replace(/\D/g, '');
@@ -41,7 +41,7 @@ serve(async (req) => {
 
     const customerResp = await fetch('https://api.mercadopago.com/v1/customers', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: user.email,
         first_name: name,
@@ -54,7 +54,7 @@ serve(async (req) => {
 
     if (customerResp.status === 400 && customerData.cause?.[0]?.code === "already_exists_customer") {
       const searchResp = await fetch(`https://api.mercadopago.com/v1/customers/search?email=${user.email}`, {
-        headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}` }
+        headers: { 'Authorization': `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}` }
       });
       const searchResult = await searchResp.json();
       customerId = searchResult.results?.[0]?.id;
@@ -65,7 +65,7 @@ serve(async (req) => {
     // 2. Assinatura
     const subResp = await fetch('https://api.mercadopago.com/preapproval', {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${MP_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
+      headers: { 'Authorization': `Bearer ${MERCADO_PAGO_ACCESS_TOKEN}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         reason: "Assinatura Mensal Concilia Pro",
         external_reference: user.id,
