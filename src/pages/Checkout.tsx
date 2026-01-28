@@ -20,22 +20,33 @@ const Checkout = () => {
       return;
     }
     setLoading(true);
+    console.log("Iniciando processo de checkout...", formData);
+
     try {
       const { data, error } = await supabase.functions.invoke('mercadopago-subscription', {
         body: formData
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Erro retornado pelo Supabase Invoke:", error);
+        throw error;
+      }
       
+      console.log("Resposta da Edge Function:", data);
+
       if (data?.error) {
         throw new Error(data.error);
       }
 
       if (data?.init_point) {
+        console.log("Redirecionando para:", data.init_point);
         window.location.href = data.init_point;
+      } else {
+        throw new Error("Link de checkout não gerado pelo servidor.");
       }
     } catch (err: any) {
-      showError(err.message || "Erro ao iniciar checkout.");
+      console.error("Erro completo capturado no catch:", err);
+      showError(err.message || "Erro ao iniciar checkout. Verifique o console do navegador.");
     } finally {
       setLoading(false);
     }
