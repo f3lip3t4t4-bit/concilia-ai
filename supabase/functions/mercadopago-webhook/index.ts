@@ -22,17 +22,20 @@ serve(async (req) => {
       const payment = await paymentResp.json()
 
       if (payment.status === 'approved') {
+        // external_reference é o user.id
         const userId = payment.external_reference
         
-        // Atualizar assinatura
-        const nextMonth = new Date()
-        nextMonth.setMonth(nextMonth.getMonth() + 1)
+        // Definir validade (30 dias)
+        const paidUntil = new Date()
+        paidUntil.setDate(paidUntil.getDate() + 30)
 
-        await supabaseAdmin.from('subscriptions').update({
+        // Atualizar ou criar a assinatura com status ativo e data de expiração
+        await supabaseAdmin.from('subscriptions').upsert({
+          user_id: userId,
           status: 'active',
-          paid_until: nextMonth.toISOString(),
+          paid_until: paidUntil.toISOString(),
           updated_at: new Date().toISOString()
-        }).eq('user_id', userId)
+        }, { onConflict: 'user_id' })
 
         // Log de pagamento
         await supabaseAdmin.from('payments_log').insert({
@@ -42,6 +45,8 @@ serve(async (req) => {
           status: 'approved',
           payload: payment
         })
+        
+        console.log(`[mercadopago-webhook] Assinatura de ${userId} ativada até ${paidUntil.toISOString()}`);
       }
     }
 

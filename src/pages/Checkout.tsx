@@ -25,7 +25,7 @@ const Checkout = () => {
     const origin = window.location.origin;
 
     try {
-      const { data, error } = await supabase.functions.invoke('mercadopago-subscription', {
+      const { data, error } = await supabase.functions.invoke('mercadopago-checkout', {
         body: { 
           ...formData,
           redirect_url: origin 

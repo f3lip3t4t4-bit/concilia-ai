@@ -30,14 +30,13 @@ export const SubscriptionGuard: React.FC<{ children: React.ReactNode }> = ({ chi
   trialEndsAt.setDate(trialEndsAt.getDate() + 7);
   
   const isTrialActive = new Date() < trialEndsAt;
-  const isPaid = subscription?.status === 'active';
-  const isPastDue = subscription?.status === 'past_due';
   
-  // Verifica se o pagamento expirou (caso já tenha pago uma vez)
-  const isExpired = subscription?.paid_until ? new Date(subscription.paid_until) < new Date() : false;
+  // Lógica de Acesso Pago (baseada puramente na data de expiração)
+  const paidUntilDate = subscription?.paid_until ? new Date(subscription.paid_until) : null;
+  const isPaidAccessValid = paidUntilDate ? paidUntilDate > new Date() : false;
 
-  // BLOQUEIO: Só bloqueia se o trial acabou E não houver pagamento ativo/válido
-  if (!isTrialActive && (!isPaid || isExpired)) {
+  // BLOQUEIO: Só bloqueia se o trial acabou E o acesso pago não é válido
+  if (!isTrialActive && !isPaidAccessValid) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
         <div className="max-w-md w-full bg-white rounded-[2.5rem] shadow-2xl p-10 text-center space-y-6 animate-in fade-in zoom-in duration-300">
@@ -45,9 +44,9 @@ export const SubscriptionGuard: React.FC<{ children: React.ReactNode }> = ({ chi
             <ShieldAlert size={48} />
           </div>
           <div className="space-y-2">
-            <h2 className="text-3xl font-black text-primary">Teste Expirado</h2>
+            <h2 className="text-3xl font-black text-primary">Acesso Expirado</h2>
             <p className="text-muted-foreground font-medium">
-              Seu período de 7 dias grátis chegou ao fim. 
+              Seu período de acesso chegou ao fim. 
               Assine o Concilia Pro para continuar gerenciando suas finanças com inteligência.
             </p>
           </div>
@@ -64,13 +63,15 @@ export const SubscriptionGuard: React.FC<{ children: React.ReactNode }> = ({ chi
     );
   }
 
-  // Se estiver no trial, vamos mostrar um aviso discreto (opcional, mas bom para UX)
+  // Se estiver no trial, vamos mostrar um aviso discreto
+  const daysRemaining = Math.ceil((trialEndsAt.getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+  
   return (
     <>
-      {isTrialActive && !isPaid && (
+      {isTrialActive && !isPaidAccessValid && (
         <div className="bg-primary text-white text-[10px] font-black uppercase tracking-[0.2em] py-1 text-center flex items-center justify-center gap-2">
           <Sparkles size={12} className="animate-pulse" />
-          Período de Teste Ativo — Expira em {Math.ceil((trialEndsAt.getTime() - new Date().getTime()) / (1000 * 3600 * 24))} dias
+          Período de Teste Ativo — Expira em {daysRemaining} dias
           <Link to="/checkout" className="underline ml-2">Assinar Agora</Link>
         </div>
       )}

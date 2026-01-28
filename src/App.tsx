@@ -12,6 +12,8 @@ import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 import LoginPage from "./pages/LoginPage";
 import Checkout from "./pages/Checkout";
+import SuccessPage from "./pages/SuccessPage";
+import PendingPage from "./pages/PendingPage";
 import { SessionContextProvider, useSession } from "./components/auth/SessionContextProvider";
 import { SubscriptionGuard } from "./components/auth/SubscriptionGuard";
 import { Loader2 } from "lucide-react";
@@ -55,6 +57,8 @@ const App = () => (
         <SessionContextProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/success" element={<SuccessPage />} />
+            <Route path="/pending" element={<PendingPage />} />
             <Route path="/checkout" element={<ProtectedRoute><Checkout /></ProtectedRoute>} />
             <Route path="/" element={<ProtectedRoute><Index /></ProtectedRoute>} />
             <Route path="/import" element={<ProtectedRoute><ImportData /></ProtectedRoute>} />
