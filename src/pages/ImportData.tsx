@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge"; // Importação garantida
+import { Badge } from "@/components/ui/badge"; 
 import { Building2, Loader2, Trash2, CheckCircle2, AlertTriangle, FileSpreadsheet } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -107,7 +107,8 @@ const ImportData = () => {
     let str = String(val).trim();
     str = str.replace(/R\$/g, '').replace(/\$/g, '').replace(/\s/g, '');
     if (str.includes(',') && str.includes('.')) {
-      str = str.replace(/\./\g, '').replace(',', '.');
+      // Correção: removendo a barra invertida antes do 'g'
+      str = str.replace(/\./g, '').replace(',', '.');
     } else if (str.includes(',')) {
       str = str.replace(',', '.');
     }
@@ -122,6 +123,7 @@ const ImportData = () => {
     const isCredit = str.endsWith('C');
     let cleanStr = str.replace(/[CD]/g, '').replace(/[^0-9,-]/g, '');
     if (cleanStr.includes(',') && cleanStr.includes('.')) {
+      // Correção: removendo a barra invertida antes do 'g'
       cleanStr = cleanStr.replace(/\./g, '').replace(',', '.');
     } else if (cleanStr.includes(',')) {
       cleanStr = cleanStr.replace(',', '.');
