@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge"; // Importação que estava faltando
+import { Badge } from "@/components/ui/badge"; // Importação garantida
 import { Building2, Loader2, Trash2, CheckCircle2, AlertTriangle, FileSpreadsheet } from "lucide-react";
 import { showSuccess, showError } from "@/utils/toast";
 import { supabase } from "@/lib/supabase";
@@ -36,7 +36,6 @@ const ImportData = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
 
-  // Se a sessão ainda estiver carregando, mostramos um loading simples
   if (isLoading) {
     return (
       <Layout>
@@ -47,7 +46,6 @@ const ImportData = () => {
     );
   }
 
-  // Se por algum motivo o usuário não existir (proteção extra)
   if (!user) return null;
 
   const handleBankStatementChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -109,7 +107,7 @@ const ImportData = () => {
     let str = String(val).trim();
     str = str.replace(/R\$/g, '').replace(/\$/g, '').replace(/\s/g, '');
     if (str.includes(',') && str.includes('.')) {
-      str = str.replace(/\./g, '').replace(',', '.');
+      str = str.replace(/\./\g, '').replace(',', '.');
     } else if (str.includes(',')) {
       str = str.replace(',', '.');
     }
