@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap, Search, LayoutDashboard, PartyPopper } from "lucide-react";
+import { Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap, Search, LayoutDashboard, PartyPopper, Layers } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/components/auth/SessionContextProvider";
 import { showSuccess, showError } from "@/utils/toast";
@@ -195,6 +195,73 @@ const Reconciliation = () => {
     setIsProcessing(false);
   };
 
+  // Algoritmo de Busca de Soma para Conciliação 1:N
+  const handleAutoGroupReconcile = async () => {
+    if (!user) return;
+    setIsProcessing(true);
+
+    const unBank = filteredBank;
+    const unFin = filteredFin;
+    const newMatches: any[] = [];
+    const usedFinIds = new Set<string>();
+
+    // Agrupar lançamentos financeiros por data para otimizar busca
+    const finByDate: Record<string, Entry[]> = {};
+    unFin.forEach(f => {
+      if (!finByDate[f.date]) finByDate[f.date] = [];
+      finByDate[f.date].push(f);
+    });
+
+    for (const b of unBank) {
+      const targetAmount = Math.round(b.amount * 100); // Usar centavos para evitar erros de float
+      const candidates = finByDate[b.date]?.filter(f => !usedFinIds.has(f.id)) || [];
+      
+      if (candidates.length < 2) continue; // Precisa de 2 ou mais para ser agrupamento
+
+      // Algoritmo recursivo para encontrar subconjunto que soma o valor exato
+      const findCombination = (remaining: Entry[], target: number, partial: Entry[] = []): Entry[] | null => {
+        const sum = partial.reduce((acc, curr) => acc + Math.round(curr.amount * 100), 0);
+        
+        if (sum === target && partial.length >= 2) return partial;
+        if (sum > target) return null;
+
+        for (let i = 0; i < remaining.length; i++) {
+          const n = remaining[i];
+          const result = findCombination(remaining.slice(i + 1), target, [...partial, n]);
+          if (result) return result;
+        }
+        return null;
+      };
+
+      // Limitar a 15 candidatos por dia para evitar explosão combinatória
+      const combination = findCombination(candidates.slice(0, 15), targetAmount);
+
+      if (combination) {
+        const groupId = window.crypto.randomUUID();
+        combination.forEach(f => {
+          newMatches.push({
+            user_id: user.id,
+            bank_statement_id: b.id,
+            financial_entry_id: f.id,
+            match_type: "group_sum",
+            group_id: groupId
+          });
+          usedFinIds.add(f.id);
+        });
+      }
+    }
+
+    if (newMatches.length === 0) {
+      showError("Nenhum agrupamento por soma encontrado para as mesmas datas.");
+    } else {
+      const { error } = await supabase.from("reconciliation_matches").insert(newMatches);
+      if (error) showError(error.message);
+      else showSuccess("Agrupamentos inteligentes realizados!");
+      fetchData();
+    }
+    setIsProcessing(false);
+  };
+
   const handleUnmatch = async (id: string) => {
     const { error } = await supabase.from("reconciliation_matches").delete().eq("id", id);
     if (error) showError("Erro ao desfazer.");
@@ -256,10 +323,13 @@ const Reconciliation = () => {
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-3xl font-black text-primary">Conciliação Ativa</h1>
-            <p className="text-muted-foreground italic">Agrupe manualmente múltiplos itens ou use a automação 1:1.</p>
+            <p className="text-muted-foreground italic">Agrupe manualmente múltiplos itens ou use as automações inteligentes.</p>
           </div>
-          <div className="flex gap-2 w-full md:w-auto">
+          <div className="flex flex-wrap gap-2 w-full md:w-auto">
             <Button onClick={fetchData} variant="outline" className="rounded-xl"><RefreshCw className="h-4 w-4 mr-2" /> Atualizar</Button>
+            <Button onClick={handleAutoGroupReconcile} disabled={isProcessing} variant="outline" className="border-indigo-600 text-indigo-600 hover:bg-indigo-50 rounded-xl">
+              {isProcessing ? <Loader2 className="animate-spin h-4 w-4" /> : <Layers className="h-4 w-4 mr-2" />} Auto (1:N)
+            </Button>
             <Button onClick={handleAutoReconcile} disabled={isProcessing} className="bg-indigo-600 rounded-xl">
               {isProcessing ? <Loader2 className="animate-spin h-4 w-4" /> : <Zap className="h-4 w-4 mr-2" />} Auto (1:1)
             </Button>
@@ -267,6 +337,7 @@ const Reconciliation = () => {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Coluna Banco */}
           <Card className="border-none shadow-xl rounded-[2rem] overflow-hidden bg-white">
             <div className="bg-blue-600 p-6 text-white">
               <div className="flex justify-between items-center mb-4">
@@ -299,6 +370,7 @@ const Reconciliation = () => {
             </div>
           </Card>
 
+          {/* Coluna Sistema */}
           <Card className="border-none shadow-xl rounded-[2rem] overflow-hidden bg-white">
             <div className="bg-emerald-600 p-6 text-white">
               <div className="flex justify-between items-center mb-4">
@@ -332,6 +404,7 @@ const Reconciliation = () => {
           </Card>
         </div>
 
+        {/* Resumo de Seleção */}
         <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-200 flex flex-col items-center gap-4">
           <div className="grid grid-cols-3 gap-8 w-full max-w-2xl text-center">
             <div><p className="text-xs font-bold text-muted-foreground uppercase">Soma Banco</p><p className="text-xl font-black text-blue-600">{formatCurrency(bankTotal)}</p></div>
@@ -347,6 +420,7 @@ const Reconciliation = () => {
           </Button>
         </div>
 
+        {/* Lista de Conciliados */}
         <Tabs defaultValue="conciliados" className="w-full">
           <TabsList className="bg-slate-100 rounded-xl p-1">
             <TabsTrigger value="conciliados" className="rounded-lg px-6 font-bold">Conciliados ({matches.length})</TabsTrigger>
@@ -369,7 +443,17 @@ const Reconciliation = () => {
                           <div className="font-bold text-xs">{f?.description}</div>
                           <div className="text-[10px] text-emerald-600">{f ? formatDateBR(f.date) : ''} | {formatCurrency(f?.amount || 0)}</div>
                         </TableCell>
-                        <TableCell><Badge variant="outline" className="text-[10px] uppercase">{m.match_type}</Badge></TableCell>
+                        <TableCell>
+                          <Badge 
+                            variant="outline" 
+                            className={cn(
+                              "text-[10px] uppercase",
+                              m.match_type === "group_sum" ? "border-indigo-500 text-indigo-600 bg-indigo-50" : ""
+                            )}
+                          >
+                            {m.match_type === "group_sum" ? "Agrupamento" : m.match_type}
+                          </Badge>
+                        </TableCell>
                         <TableCell className="text-right"><Button variant="ghost" size="icon" className="text-destructive h-8 w-8" onClick={() => handleUnmatch(m.id)}><Trash2 size={14} /></Button></TableCell>
                       </TableRow>
                     );
