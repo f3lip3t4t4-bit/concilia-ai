@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Check, CreditCard, Rocket, Loader2, ShieldCheck } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { useSession } from "@/components/auth/SessionContextProvider";
 import { showError } from "@/utils/toast";
 
 const Checkout = () => {
+  const { session } = useSession();
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({ name: "", tax_id: "" });
 
@@ -24,34 +25,35 @@ const Checkout = () => {
     const origin = window.location.origin;
 
     try {
-      // Chamada para a Edge Function
-      const { data, error } = await supabase.functions.invoke('mercadopago-checkout', {
-        body: { 
+      // Chamada direta via fetch usando a URL absoluta conforme diretrizes
+      const response = await fetch("https://klokjxcaeamgbfowmbqf.supabase.co/functions/v1/mercadopago-checkout", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${session?.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ 
           name: formData.name.trim(),
           tax_id: formData.tax_id.trim(),
           redirect_url: origin 
-        }
+        })
       });
 
-      // Erro na chamada (Rede, 404, etc)
-      if (error) {
-        throw new Error(error.message || "Erro ao conectar com o servidor de pagamentos.");
-      }
-      
-      // Erro retornado pela lógica da função (ex: Token MP faltando)
-      if (data?.error) {
-        throw new Error(data.error);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Erro de conexão (${response.status})`);
       }
 
-      // Sucesso: Redireciona para o Mercado Pago
+      const data = await response.json();
+
       if (data?.init_point) {
         window.location.href = data.init_point;
       } else {
-        throw new Error("Não foi possível gerar o link de pagamento. Tente novamente.");
+        throw new Error("Não foi possível gerar o link de pagamento.");
       }
     } catch (err: any) {
       console.error("Erro no fluxo de checkout:", err);
-      showError(err.message || "Ocorreu um erro inesperado ao iniciar o checkout.");
+      showError(err.message || "Ocorreu um erro ao tentar conectar com o provedor de pagamentos.");
     } finally {
       setLoading(false);
     }

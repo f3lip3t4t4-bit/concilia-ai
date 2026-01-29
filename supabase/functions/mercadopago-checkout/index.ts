@@ -16,7 +16,7 @@ serve(async (req) => {
   try {
     const authHeader = req.headers.get('Authorization')
     if (!authHeader) {
-      console.error(`[${functionName}] Erro: Cabeçalho de autorização ausente`);
+      console.error(`[${functionName}] Erro: Autorização ausente`);
       throw new Error('Não autorizado');
     }
 
@@ -29,23 +29,22 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabaseClient.auth.getUser(token);
     
     if (userError || !user) {
-      console.error(`[${functionName}] Erro ao validar usuário:`, userError);
-      throw new Error('Sessão expirada ou inválida');
+      console.error(`[${functionName}] Usuário inválido`);
+      throw new Error('Sessão inválida');
     }
 
     const body = await req.json().catch(() => ({}));
     const { name, tax_id, redirect_url } = body;
 
     if (!name || !tax_id) {
-      throw new Error('Dados do pagador incompletos (nome e CPF/CNPJ são obrigatórios)');
+      throw new Error('Nome e documento são obrigatórios');
     }
 
-    console.log(`[${functionName}] Gerando checkout para: ${user.email} (${user.id})`);
+    console.log(`[${functionName}] Gerando preferência para: ${user.email}`);
 
     const MERCADO_PAGO_ACCESS_TOKEN = Deno.env.get('MERCADO_PAGO_ACCESS_TOKEN');
     if (!MERCADO_PAGO_ACCESS_TOKEN) {
-      console.error(`[${functionName}] Erro: MERCADO_PAGO_ACCESS_TOKEN não configurado no Supabase`);
-      throw new Error('Erro de configuração no servidor de pagamentos.');
+      throw new Error('Token do Mercado Pago não configurado no servidor');
     }
 
     const cleanTaxId = tax_id.replace(/\D/g, '');
@@ -89,11 +88,9 @@ serve(async (req) => {
     const data = await response.json()
 
     if (!response.ok) {
-      console.error(`[${functionName}] Erro na API do Mercado Pago:`, data);
-      throw new Error(data.message || "O Mercado Pago recusou a criação do checkout.");
+      console.error(`[${functionName}] API Mercado Pago:`, data);
+      throw new Error(data.message || "Erro ao criar checkout no Mercado Pago");
     }
-
-    console.log(`[${functionName}] Preferência criada com sucesso: ${data.id}`);
 
     return new Response(JSON.stringify({
       init_point: data.init_point,
@@ -104,7 +101,7 @@ serve(async (req) => {
     });
 
   } catch (err) {
-    console.error(`[${functionName}] Erro crítico:`, err.message);
+    console.error(`[${functionName}] Erro:`, err.message);
     return new Response(JSON.stringify({ error: err.message }), { 
       status: 400,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
