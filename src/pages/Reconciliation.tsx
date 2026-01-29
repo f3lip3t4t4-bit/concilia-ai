@@ -195,7 +195,6 @@ const Reconciliation = () => {
     setIsProcessing(false);
   };
 
-  // Algoritmo de Busca de Soma para Conciliação 1:N
   const handleAutoGroupReconcile = async () => {
     if (!user) return;
     setIsProcessing(true);
@@ -205,7 +204,6 @@ const Reconciliation = () => {
     const newMatches: any[] = [];
     const usedFinIds = new Set<string>();
 
-    // Agrupar lançamentos financeiros por data para otimizar busca
     const finByDate: Record<string, Entry[]> = {};
     unFin.forEach(f => {
       if (!finByDate[f.date]) finByDate[f.date] = [];
@@ -213,17 +211,22 @@ const Reconciliation = () => {
     });
 
     for (const b of unBank) {
-      const targetAmount = Math.round(b.amount * 100); // Usar centavos para evitar erros de float
-      const candidates = finByDate[b.date]?.filter(f => !usedFinIds.has(f.id)) || [];
-      
-      if (candidates.length < 2) continue; // Precisa de 2 ou mais para ser agrupamento
+      // Trabalhamos com valores absolutos para simplificar a busca da soma
+      const targetAbs = Math.round(Math.abs(b.amount) * 100);
+      const isBankDebit = b.amount < 0;
 
-      // Algoritmo recursivo para encontrar subconjunto que soma o valor exato
+      // Filtramos candidatos que tenham a mesma data e o mesmo sinal (débito com débito, crédito com crédito)
+      const candidates = (finByDate[b.date] || [])
+        .filter(f => !usedFinIds.has(f.id))
+        .filter(f => (isBankDebit ? f.amount < 0 : f.amount > 0));
+      
+      if (candidates.length < 2) continue;
+
       const findCombination = (remaining: Entry[], target: number, partial: Entry[] = []): Entry[] | null => {
-        const sum = partial.reduce((acc, curr) => acc + Math.round(curr.amount * 100), 0);
+        const currentSum = partial.reduce((acc, curr) => acc + Math.round(Math.abs(curr.amount) * 100), 0);
         
-        if (sum === target && partial.length >= 2) return partial;
-        if (sum > target) return null;
+        if (currentSum === target && partial.length >= 2) return partial;
+        if (currentSum > target) return null;
 
         for (let i = 0; i < remaining.length; i++) {
           const n = remaining[i];
@@ -233,8 +236,7 @@ const Reconciliation = () => {
         return null;
       };
 
-      // Limitar a 15 candidatos por dia para evitar explosão combinatória
-      const combination = findCombination(candidates.slice(0, 15), targetAmount);
+      const combination = findCombination(candidates.slice(0, 20), targetAbs);
 
       if (combination) {
         const groupId = window.crypto.randomUUID();
@@ -252,7 +254,7 @@ const Reconciliation = () => {
     }
 
     if (newMatches.length === 0) {
-      showError("Nenhum agrupamento por soma encontrado para as mesmas datas.");
+      showError("Nenhum agrupamento por soma encontrado.");
     } else {
       const { error } = await supabase.from("reconciliation_matches").insert(newMatches);
       if (error) showError(error.message);
@@ -337,7 +339,6 @@ const Reconciliation = () => {
         </header>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Coluna Banco */}
           <Card className="border-none shadow-xl rounded-[2rem] overflow-hidden bg-white">
             <div className="bg-blue-600 p-6 text-white">
               <div className="flex justify-between items-center mb-4">
@@ -370,7 +371,6 @@ const Reconciliation = () => {
             </div>
           </Card>
 
-          {/* Coluna Sistema */}
           <Card className="border-none shadow-xl rounded-[2rem] overflow-hidden bg-white">
             <div className="bg-emerald-600 p-6 text-white">
               <div className="flex justify-between items-center mb-4">
@@ -404,7 +404,6 @@ const Reconciliation = () => {
           </Card>
         </div>
 
-        {/* Resumo de Seleção */}
         <div className="bg-slate-50 p-6 rounded-[2rem] border border-slate-200 flex flex-col items-center gap-4">
           <div className="grid grid-cols-3 gap-8 w-full max-w-2xl text-center">
             <div><p className="text-xs font-bold text-muted-foreground uppercase">Soma Banco</p><p className="text-xl font-black text-blue-600">{formatCurrency(bankTotal)}</p></div>
@@ -420,7 +419,6 @@ const Reconciliation = () => {
           </Button>
         </div>
 
-        {/* Lista de Conciliados */}
         <Tabs defaultValue="conciliados" className="w-full">
           <TabsList className="bg-slate-100 rounded-xl p-1">
             <TabsTrigger value="conciliados" className="rounded-lg px-6 font-bold">Conciliados ({matches.length})</TabsTrigger>
