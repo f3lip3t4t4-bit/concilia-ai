@@ -136,17 +136,30 @@ const ImportData = () => {
     return num;
   };
 
-  const processInternalSystemRows = (rows: any[][], userId: string) => {
+  const processInternalSystemRows = (rows: any[][], userId: string, selectedBank: string) => {
     if (rows.length < 2) return [];
+    
+    // Termo de filtro baseado na seleção (SICREDI ou SICOOB)
+    const filterTerm = selectedBank.toUpperCase();
+    
     // Cabeçalho na linha 2 (index 1), dados começam na 3 (index 2)
     return rows.slice(2)
       .map(row => {
+        // Coluna C (index 2) é onde está o nome da Conta/Banco
+        const accountName = String(row[2] || "").toUpperCase();
+        
+        // Se um banco específico foi selecionado, filtrar o relatório interno
+        if (selectedBank !== "padrao" && !accountName.includes(filterTerm)) {
+          return null;
+        }
+
         const date = formatDate(row[0]);
         const subGroup = String(row[5] || "").trim(); // Coluna F (index 5)
         const history = String(row[7] || "").trim(); // Coluna H (index 7)
         const entrada = parseAmount(row[9]);
         const saida = parseAmount(row[10]);
         const amount = entrada !== 0 ? Math.abs(entrada) : (saida !== 0 ? -Math.abs(saida) : 0);
+        
         if (!date || amount === 0) return null;
         return { user_id: userId, date, description: history, sub_group: subGroup, amount };
       })
@@ -221,8 +234,10 @@ const ImportData = () => {
     try {
       const rawBankRows = await parseExcel(bankStatementFile);
       const formattedBankData = processBankRows(rawBankRows, user.id, bankType);
+      
       const rawFinRows = await parseExcel(financialEntriesFile);
-      const formattedFinancialData = processInternalSystemRows(rawFinRows, user.id);
+      // Passamos o bankType para filtrar o relatório interno automaticamente
+      const formattedFinancialData = processInternalSystemRows(rawFinRows, user.id, bankType);
 
       if (formattedBankData.length > 0) {
         const { error } = await supabase.from("bank_statements").insert(formattedBankData);
@@ -232,7 +247,8 @@ const ImportData = () => {
         const { error } = await supabase.from("financial_entries").insert(formattedFinancialData);
         if (error) throw error;
       }
-      showSuccess(`Sincronização concluída! (${formattedBankData.length} itens bancários)`);
+      
+      showSuccess(`Sincronização concluída! Filtrados itens do ${bankType.toUpperCase()}.`);
       navigate("/reconciliation");
     } catch (error: any) {
       showError(`Erro: ${error.message}`);
@@ -285,15 +301,15 @@ const ImportData = () => {
             <CardContent className="p-8 sm:p-10 space-y-8">
               <div className="space-y-6">
                 <div className="grid w-full items-center gap-3">
-                  <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">Modelo do Banco</Label>
+                  <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">Modelo do Banco (Filtra relatório automático)</Label>
                   <Select value={bankType} onValueChange={setBankType}>
                     <SelectTrigger className="rounded-2xl h-14 bg-slate-50 border-slate-200 focus:ring-2 focus:ring-primary/20 transition-all font-bold">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent className="rounded-xl border-slate-200">
-                      <SelectItem value="padrao">Auto-detecção (Genérico)</SelectItem>
-                      <SelectItem value="sicoob">Sicoob Oficial (.xlsx)</SelectItem>
-                      <SelectItem value="sicredi">Sicredi Oficial (.xlsx)</SelectItem>
+                      <SelectItem value="padrao">Auto-detecção (Sem filtro de Conta)</SelectItem>
+                      <SelectItem value="sicoob">Sicoob Oficial</SelectItem>
+                      <SelectItem value="sicredi">Sicredi Oficial</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -326,7 +342,7 @@ const ImportData = () => {
                   </div>
 
                   <div className="space-y-3">
-                    <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">Sistema Financeiro</Label>
+                    <Label className="text-xs font-black uppercase tracking-widest text-muted-foreground ml-1">Sistema Financeiro (Relatório Geral)</Label>
                     <div className={cn(
                       "relative group rounded-2xl border-2 border-dashed transition-all p-4 text-center cursor-pointer",
                       financialEntriesFile ? "border-emerald-200 bg-emerald-50/50" : "border-slate-200 hover:border-primary/50 hover:bg-slate-50"
