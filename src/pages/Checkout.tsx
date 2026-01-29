@@ -15,35 +15,43 @@ const Checkout = () => {
   const [formData, setFormData] = useState({ name: "", tax_id: "" });
 
   const handleSubscribe = async () => {
-    if (!formData.name || !formData.tax_id) {
-      showError("Preencha todos os campos.");
+    if (!formData.name.trim() || !formData.tax_id.trim()) {
+      showError("Por favor, preencha seu nome e CPF/CNPJ.");
       return;
     }
-    setLoading(true);
     
-    // Captura a URL base atual (ex: http://localhost:8080 ou a URL do Dyad)
+    setLoading(true);
     const origin = window.location.origin;
 
     try {
+      // Chamada para a Edge Function
       const { data, error } = await supabase.functions.invoke('mercadopago-checkout', {
         body: { 
-          ...formData,
+          name: formData.name.trim(),
+          tax_id: formData.tax_id.trim(),
           redirect_url: origin 
         }
       });
 
-      if (error) throw error;
+      // Erro na chamada (Rede, 404, etc)
+      if (error) {
+        throw new Error(error.message || "Erro ao conectar com o servidor de pagamentos.");
+      }
       
-      if (data?.error) throw new Error(data.error);
+      // Erro retornado pela lógica da função (ex: Token MP faltando)
+      if (data?.error) {
+        throw new Error(data.error);
+      }
 
+      // Sucesso: Redireciona para o Mercado Pago
       if (data?.init_point) {
         window.location.href = data.init_point;
       } else {
-        throw new Error("Link de checkout não gerado.");
+        throw new Error("Não foi possível gerar o link de pagamento. Tente novamente.");
       }
     } catch (err: any) {
-      console.error("Erro no checkout:", err);
-      showError(err.message || "Erro ao iniciar checkout.");
+      console.error("Erro no fluxo de checkout:", err);
+      showError(err.message || "Ocorreu um erro inesperado ao iniciar o checkout.");
     } finally {
       setLoading(false);
     }
@@ -51,7 +59,7 @@ const Checkout = () => {
 
   return (
     <Layout>
-      <div className="max-w-4xl mx-auto space-y-10 py-10">
+      <div className="max-w-4xl mx-auto space-y-10 py-10 animate-in fade-in duration-500">
         <header className="text-center space-y-4">
           <h1 className="text-5xl font-black text-primary tracking-tighter">Assine o Concilia Pro</h1>
           <p className="text-xl text-muted-foreground font-medium">Controle total, automação e relatórios ilimitados.</p>
