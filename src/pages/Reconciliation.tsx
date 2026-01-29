@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap, Search, LayoutDashboard, PartyPopper, Layers } from "lucide-react";
+import { Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap, Search, LayoutDashboard, PartyPopper, Layers, Car } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/components/auth/SessionContextProvider";
 import { showSuccess, showError } from "@/utils/toast";
@@ -22,6 +22,7 @@ interface Entry {
   date: string;
   description: string;
   amount: number;
+  sub_group?: string;
 }
 
 const Reconciliation = () => {
@@ -85,21 +86,14 @@ const Reconciliation = () => {
       const duration = 3 * 1000;
       const animationEnd = Date.now() + duration;
       const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
-
       const randomInRange = (min: number, max: number) => Math.random() * (max - min) + min;
-
       const interval: any = setInterval(function() {
         const timeLeft = animationEnd - Date.now();
-
-        if (timeLeft <= 0) {
-          return clearInterval(interval);
-        }
-
+        if (timeLeft <= 0) return clearInterval(interval);
         const particleCount = 50 * (timeLeft / duration);
         confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
         confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
       }, 250);
-
       return () => clearInterval(interval);
     }
   }, [isAllClear]);
@@ -117,12 +111,10 @@ const Reconciliation = () => {
       showError("Selecione ao menos um item de cada lado.");
       return;
     }
-    
     setIsProcessing(true);
     try {
       const groupId = window.crypto.randomUUID();
       const payload: any[] = [];
-
       selectedBankIds.forEach(bId => {
         selectedFinIds.forEach(fId => {
           payload.push({
@@ -134,10 +126,8 @@ const Reconciliation = () => {
           });
         });
       });
-
       const { error } = await supabase.from("reconciliation_matches").insert(payload);
       if (error) throw error;
-      
       showSuccess("Itens conciliados manualmente!");
       setSelectedBankIds([]);
       setSelectedFinIds([]);
@@ -152,13 +142,10 @@ const Reconciliation = () => {
   const handleAutoReconcile = async () => {
     if (!user) return;
     setIsProcessing(true);
-    
     const unBank = filteredBank;
     const unFin = filteredFin;
-    
     const newMatches: any[] = [];
     const usedFin = new Set<string>();
-
     const valTol = Number(rules.value_tolerance || 0);
     const dateTol = Number(rules.date_tolerance_days || 0);
 
@@ -171,7 +158,6 @@ const Reconciliation = () => {
         const diffAmount = Math.abs(Number(b.amount) - Number(f.amount));
         return diffDays <= dateTol && diffAmount <= valTol;
       });
-
       if (match) {
         newMatches.push({
           user_id: user.id,
@@ -184,9 +170,8 @@ const Reconciliation = () => {
       }
     });
 
-    if (newMatches.length === 0) {
-      showError("Nenhuma correspondência exata encontrada.");
-    } else {
+    if (newMatches.length === 0) showError("Nenhuma correspondência exata encontrada.");
+    else {
       const { error } = await supabase.from("reconciliation_matches").insert(newMatches);
       if (error) showError(error.message);
       else showSuccess(`${newMatches.length} pares encontrados!`);
@@ -195,7 +180,13 @@ const Reconciliation = () => {
     setIsProcessing(false);
   };
 
-  const handleAutoGroupReconcile = async () => {
+  const extractPlate = (text: string) => {
+    // Regex para placa Mercosul ou Antiga: 3 letras, 1 número, 1 letra/número, 2 números
+    const match = text.match(/[A-Z]{3}-?\d[A-Z\d]\d{2}/i);
+    return match ? match[0].toUpperCase().replace('-', '') : null;
+  };
+
+  const handleAutoNtoOneReconcile = async () => {
     if (!user) return;
     setIsProcessing(true);
 
@@ -204,6 +195,60 @@ const Reconciliation = () => {
     const newMatches: any[] = [];
     const usedFinIds = new Set<string>();
 
+    // 1. Agrupar itens do banco por placa
+    const bankByPlate: Record<string, Entry[]> = {};
+    unBank.forEach(b => {
+      const plate = extractPlate(b.description);
+      if (plate) {
+        if (!bankByPlate[plate]) bankByPlate[plate] = [];
+        bankByPlate[plate].push(b);
+      }
+    });
+
+    // 2. Para cada placa, somar e buscar no sistema
+    for (const plate in bankByPlate) {
+      const entries = bankByPlate[plate];
+      const totalBankCents = entries.reduce((acc, curr) => acc + Math.round(curr.amount * 100), 0);
+
+      const match = unFin.find(f => {
+        if (usedFinIds.has(f.id)) return false;
+        const fPlate = f.sub_group ? extractPlate(f.sub_group) : null;
+        if (!fPlate || fPlate !== plate) return false;
+        return Math.round(f.amount * 100) === totalBankCents;
+      });
+
+      if (match) {
+        const groupId = window.crypto.randomUUID();
+        entries.forEach(b => {
+          newMatches.push({
+            user_id: user.id,
+            bank_statement_id: b.id,
+            financial_entry_id: match.id,
+            match_type: "n_to_one",
+            group_id: groupId
+          });
+        });
+        usedFinIds.add(match.id);
+      }
+    }
+
+    if (newMatches.length === 0) showError("Nenhum agrupamento por placa encontrado.");
+    else {
+      const { error } = await supabase.from("reconciliation_matches").insert(newMatches);
+      if (error) showError(error.message);
+      else showSuccess("Conciliação N:1 (Placas) concluída!");
+      fetchData();
+    }
+    setIsProcessing(false);
+  };
+
+  const handleAutoGroupReconcile = async () => {
+    if (!user) return;
+    setIsProcessing(true);
+    const unBank = filteredBank;
+    const unFin = filteredFin;
+    const newMatches: any[] = [];
+    const usedFinIds = new Set<string>();
     const finByDate: Record<string, Entry[]> = {};
     unFin.forEach(f => {
       if (!finByDate[f.date]) finByDate[f.date] = [];
@@ -211,33 +256,24 @@ const Reconciliation = () => {
     });
 
     for (const b of unBank) {
-      // Trabalhamos com valores absolutos para simplificar a busca da soma
       const targetAbs = Math.round(Math.abs(b.amount) * 100);
       const isBankDebit = b.amount < 0;
-
-      // Filtramos candidatos que tenham a mesma data e o mesmo sinal (débito com débito, crédito com crédito)
       const candidates = (finByDate[b.date] || [])
         .filter(f => !usedFinIds.has(f.id))
         .filter(f => (isBankDebit ? f.amount < 0 : f.amount > 0));
       
       if (candidates.length < 2) continue;
-
       const findCombination = (remaining: Entry[], target: number, partial: Entry[] = []): Entry[] | null => {
         const currentSum = partial.reduce((acc, curr) => acc + Math.round(Math.abs(curr.amount) * 100), 0);
-        
         if (currentSum === target && partial.length >= 2) return partial;
         if (currentSum > target) return null;
-
         for (let i = 0; i < remaining.length; i++) {
-          const n = remaining[i];
-          const result = findCombination(remaining.slice(i + 1), target, [...partial, n]);
+          const result = findCombination(remaining.slice(i + 1), target, [...partial, remaining[i]]);
           if (result) return result;
         }
         return null;
       };
-
       const combination = findCombination(candidates.slice(0, 20), targetAbs);
-
       if (combination) {
         const groupId = window.crypto.randomUUID();
         combination.forEach(f => {
@@ -252,10 +288,8 @@ const Reconciliation = () => {
         });
       }
     }
-
-    if (newMatches.length === 0) {
-      showError("Nenhum agrupamento por soma encontrado.");
-    } else {
+    if (newMatches.length === 0) showError("Nenhum agrupamento por soma encontrado.");
+    else {
       const { error } = await supabase.from("reconciliation_matches").insert(newMatches);
       if (error) showError(error.message);
       else showSuccess("Agrupamentos inteligentes realizados!");
@@ -295,25 +329,12 @@ const Reconciliation = () => {
               <PartyPopper size={64} />
             </div>
           </div>
-          
           <div className="space-y-3">
             <h1 className="text-5xl font-black text-primary tracking-tight">Tudo em ordem!</h1>
-            <p className="text-xl text-muted-foreground max-w-md mx-auto">
-              Você não possui nenhuma pendência de conciliação no momento. Sua saúde financeira está em dia!
-            </p>
+            <p className="text-xl text-muted-foreground max-w-md mx-auto">Você não possui nenhuma pendência de conciliação no momento.</p>
           </div>
-
-          <Button 
-            size="lg" 
-            onClick={() => navigate("/")}
-            className="h-16 px-10 text-xl font-black rounded-2xl shadow-xl hover:scale-105 transition-all bg-primary"
-          >
-            <LayoutDashboard className="mr-3 h-6 w-6" /> Ir para o Dashboard
-          </Button>
-
-          <Button variant="ghost" onClick={fetchData} className="text-muted-foreground">
-            <RefreshCw className="mr-2 h-4 w-4" /> Recarregar dados
-          </Button>
+          <Button size="lg" onClick={() => navigate("/")} className="h-16 px-10 text-xl font-black rounded-2xl shadow-xl hover:scale-105 transition-all bg-primary"><LayoutDashboard className="mr-3 h-6 w-6" /> Ir para o Dashboard</Button>
+          <Button variant="ghost" onClick={fetchData} className="text-muted-foreground"><RefreshCw className="mr-2 h-4 w-4" /> Recarregar dados</Button>
         </div>
       </Layout>
     );
@@ -325,10 +346,13 @@ const Reconciliation = () => {
         <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
             <h1 className="text-3xl font-black text-primary">Conciliação Ativa</h1>
-            <p className="text-muted-foreground italic">Agrupe manualmente múltiplos itens ou use as automações inteligentes.</p>
+            <p className="text-muted-foreground italic">Agrupe múltiplos itens ou use as automações inteligentes.</p>
           </div>
           <div className="flex flex-wrap gap-2 w-full md:w-auto">
             <Button onClick={fetchData} variant="outline" className="rounded-xl"><RefreshCw className="h-4 w-4 mr-2" /> Atualizar</Button>
+            <Button onClick={handleAutoNtoOneReconcile} disabled={isProcessing} variant="outline" className="border-emerald-600 text-emerald-600 hover:bg-emerald-50 rounded-xl">
+              {isProcessing ? <Loader2 className="animate-spin h-4 w-4" /> : <Car className="h-4 w-4 mr-2" />} N:1 (Placas)
+            </Button>
             <Button onClick={handleAutoGroupReconcile} disabled={isProcessing} variant="outline" className="border-indigo-600 text-indigo-600 hover:bg-indigo-50 rounded-xl">
               {isProcessing ? <Loader2 className="animate-spin h-4 w-4" /> : <Layers className="h-4 w-4 mr-2" />} Auto (1:N)
             </Button>
@@ -347,11 +371,7 @@ const Reconciliation = () => {
               </div>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50" />
-                <Input 
-                  placeholder="Filtrar descrição..." 
-                  className="bg-white/10 border-none text-white placeholder:text-white/50 pl-10 h-10"
-                  value={searchTermBank} onChange={e => setSearchTermBank(e.target.value)}
-                />
+                <Input placeholder="Filtrar descrição..." className="bg-white/10 border-none text-white placeholder:text-white/50 pl-10 h-10" value={searchTermBank} onChange={e => setSearchTermBank(e.target.value)} />
               </div>
             </div>
             <div className="max-h-[400px] overflow-auto">
@@ -379,11 +399,7 @@ const Reconciliation = () => {
               </div>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50" />
-                <Input 
-                  placeholder="Filtrar histórico..." 
-                  className="bg-white/10 border-none text-white placeholder:text-white/50 pl-10 h-10"
-                  value={searchTermFin} onChange={e => setSearchTermFin(e.target.value)}
-                />
+                <Input placeholder="Filtrar histórico..." className="bg-white/10 border-none text-white placeholder:text-white/50 pl-10 h-10" value={searchTermFin} onChange={e => setSearchTermFin(e.target.value)} />
               </div>
             </div>
             <div className="max-h-[400px] overflow-auto">
@@ -410,11 +426,7 @@ const Reconciliation = () => {
             <div><p className="text-xs font-bold text-muted-foreground uppercase">Soma Sistema</p><p className="text-xl font-black text-emerald-600">{formatCurrency(finTotal)}</p></div>
             <div><p className="text-xs font-bold text-muted-foreground uppercase">Diferença</p><p className={cn("text-xl font-black", difference < 0.01 ? "text-emerald-500" : "text-destructive")}>{formatCurrency(bankTotal - finTotal)}</p></div>
           </div>
-          <Button 
-            size="lg" className="rounded-2xl px-12 h-16 text-lg font-black shadow-xl bg-primary hover:scale-105 transition-all"
-            disabled={selectedBankIds.length === 0 || selectedFinIds.length === 0 || isProcessing}
-            onClick={handleManualMatch}
-          >
+          <Button size="lg" className="rounded-2xl px-12 h-16 text-lg font-black shadow-xl bg-primary hover:scale-105 transition-all" disabled={selectedBankIds.length === 0 || selectedFinIds.length === 0 || isProcessing} onClick={handleManualMatch}>
             <ArrowRightLeft className="mr-3 h-6 w-6" /> Conciliar Lote Manual
           </Button>
         </div>
@@ -442,14 +454,8 @@ const Reconciliation = () => {
                           <div className="text-[10px] text-emerald-600">{f ? formatDateBR(f.date) : ''} | {formatCurrency(f?.amount || 0)}</div>
                         </TableCell>
                         <TableCell>
-                          <Badge 
-                            variant="outline" 
-                            className={cn(
-                              "text-[10px] uppercase",
-                              m.match_type === "group_sum" ? "border-indigo-500 text-indigo-600 bg-indigo-50" : ""
-                            )}
-                          >
-                            {m.match_type === "group_sum" ? "Agrupamento" : m.match_type}
+                          <Badge variant="outline" className={cn("text-[10px] uppercase", m.match_type === "n_to_one" ? "border-emerald-500 text-emerald-600 bg-emerald-50" : m.match_type === "group_sum" ? "border-indigo-500 text-indigo-600 bg-indigo-50" : "")}>
+                            {m.match_type === "n_to_one" ? "N:1 Placas" : m.match_type === "group_sum" ? "Agrupamento" : m.match_type}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-right"><Button variant="ghost" size="icon" className="text-destructive h-8 w-8" onClick={() => handleUnmatch(m.id)}><Trash2 size={14} /></Button></TableCell>

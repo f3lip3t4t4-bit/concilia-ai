@@ -93,30 +93,21 @@ const ImportData = () => {
       const userOffset = d.getTimezoneOffset() * 60000;
       d = new Date(d.getTime() + userOffset);
     } else {
-      // Tratamento robusto para strings no formato DD/MM/AAAA
       const str = String(val).trim();
       if (str.includes('/')) {
         const parts = str.split('/');
         if (parts.length === 3) {
           const day = parseInt(parts[0]);
-          const month = parseInt(parts[1]) - 1; // Meses são base-0 no JS
+          const month = parseInt(parts[1]) - 1; 
           let year = parseInt(parts[2]);
           if (parts[2].length === 2) year += 2000;
           d = new Date(year, month, day, 12, 0, 0);
         }
       }
-      
-      if (!d || isNaN(d.getTime())) {
-        d = new Date(val);
-      }
+      if (!d || isNaN(d.getTime())) d = new Date(val);
     }
-
     if (!d || isNaN(d.getTime())) return null;
-
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   };
 
   const parseAmount = (val: any) => {
@@ -124,11 +115,8 @@ const ImportData = () => {
     if (!val) return 0;
     let str = String(val).trim();
     str = str.replace(/R\$/g, '').replace(/\$/g, '').replace(/\s/g, '');
-    if (str.includes(',') && str.includes('.')) {
-      str = str.replace(/\./g, '').replace(',', '.');
-    } else if (str.includes(',')) {
-      str = str.replace(',', '.');
-    }
+    if (str.includes(',') && str.includes('.')) str = str.replace(/\./g, '').replace(',', '.');
+    else if (str.includes(',')) str = str.replace(',', '.');
     const num = parseFloat(str);
     return isNaN(num) ? 0 : num;
   };
@@ -139,11 +127,8 @@ const ImportData = () => {
     const isDebit = str.endsWith('D') || str.startsWith('-');
     const isCredit = str.endsWith('C');
     let cleanStr = str.replace(/[CD]/g, '').replace(/[^0-9,-]/g, '');
-    if (cleanStr.includes(',') && cleanStr.includes('.')) {
-      cleanStr = cleanStr.replace(/\./g, '').replace(',', '.');
-    } else if (cleanStr.includes(',')) {
-      cleanStr = cleanStr.replace(',', '.');
-    }
+    if (cleanStr.includes(',') && cleanStr.includes('.')) cleanStr = cleanStr.replace(/\./g, '').replace(',', '.');
+    else if (cleanStr.includes(',')) cleanStr = cleanStr.replace(',', '.');
     let num = parseFloat(cleanStr);
     if (isNaN(num)) return 0;
     if (isDebit && num > 0) num = num * -1;
@@ -153,15 +138,17 @@ const ImportData = () => {
 
   const processInternalSystemRows = (rows: any[][], userId: string) => {
     if (rows.length < 2) return [];
+    // Cabeçalho na linha 2 (index 1), dados começam na 3 (index 2)
     return rows.slice(2)
       .map(row => {
         const date = formatDate(row[0]);
-        const history = String(row[7] || "").trim();
+        const subGroup = String(row[5] || "").trim(); // Coluna F (index 5)
+        const history = String(row[7] || "").trim(); // Coluna H (index 7)
         const entrada = parseAmount(row[9]);
         const saida = parseAmount(row[10]);
         const amount = entrada !== 0 ? Math.abs(entrada) : (saida !== 0 ? -Math.abs(saida) : 0);
-        if (!date || !history || amount === 0) return null;
-        return { user_id: userId, date, description: history, amount };
+        if (!date || amount === 0) return null;
+        return { user_id: userId, date, description: history, sub_group: subGroup, amount };
       })
       .filter(item => item !== null);
   };
@@ -219,7 +206,6 @@ const ImportData = () => {
         const date = formatDate(rawDate);
         const description = String(row[colMap.desc] || "").trim();
         const amount = parseAmount(row[colMap.amount]);
-        
         if (!date || !description || amount === 0 || description.toUpperCase().includes("SALDO")) return null;
         return { user_id: userId, date, description, amount };
       })
