@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Check, CreditCard, Rocket, Loader2, ShieldCheck } from "lucide-react";
 import { useSession } from "@/components/auth/SessionContextProvider";
 import { showError } from "@/utils/toast";
+import { supabase } from "@/lib/supabase";
 
 const Checkout = () => {
   const { session } = useSession();
@@ -22,11 +23,17 @@ const Checkout = () => {
     }
     
     setLoading(true);
+    
+    // Captura a origem exata para as back_urls do Mercado Pago
     const origin = window.location.origin;
 
     try {
-      // Chamada direta via fetch usando a URL absoluta conforme diretrizes
-      const response = await fetch("https://klokjxcaeamgbfowmbqf.supabase.co/functions/v1/mercadopago-checkout", {
+      console.log("Iniciando checkout com origem:", origin);
+
+      // Usando a URL absoluta para evitar falhas de resolução de rota em ambientes de preview
+      const functionUrl = "https://klokjxcaeamgbfowmbqf.supabase.co/functions/v1/mercadopago-checkout";
+      
+      const response = await fetch(functionUrl, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${session?.access_token}`,
@@ -39,21 +46,20 @@ const Checkout = () => {
         })
       });
 
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Erro de conexão (${response.status})`);
-      }
-
       const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || `Erro no servidor (${response.status})`);
+      }
 
       if (data?.init_point) {
         window.location.href = data.init_point;
       } else {
-        throw new Error("Não foi possível gerar o link de pagamento.");
+        throw new Error("Link de pagamento não gerado.");
       }
     } catch (err: any) {
       console.error("Erro no fluxo de checkout:", err);
-      showError(err.message || "Ocorreu um erro ao tentar conectar com o provedor de pagamentos.");
+      showError(err.message || "Erro ao conectar com o provedor de pagamentos.");
     } finally {
       setLoading(false);
     }

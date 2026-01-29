@@ -36,15 +36,20 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const { name, tax_id, redirect_url } = body;
 
-    if (!name || !tax_id) {
-      throw new Error('Nome e documento são obrigatórios');
+    if (!name || !tax_id || !redirect_url) {
+      console.error(`[${functionName}] Dados insuficientes:`, { name, tax_id, redirect_url });
+      throw new Error('Nome, documento e URL de retorno são obrigatórios');
     }
 
-    console.log(`[${functionName}] Gerando preferência para: ${user.email}`);
+    // Garantir que a redirect_url não termine com barra para evitar double slashes
+    const baseUrl = redirect_url.endsWith('/') ? redirect_url.slice(0, -1) : redirect_url;
+
+    console.log(`[${functionName}] Gerando preferência para: ${user.email}. Base URL: ${baseUrl}`);
 
     const MERCADO_PAGO_ACCESS_TOKEN = Deno.env.get('MERCADO_PAGO_ACCESS_TOKEN');
     if (!MERCADO_PAGO_ACCESS_TOKEN) {
-      throw new Error('Token do Mercado Pago não configurado no servidor');
+      console.error(`[${functionName}] Erro: MERCADO_PAGO_ACCESS_TOKEN não configurado`);
+      throw new Error('Configuração de pagamento ausente no servidor');
     }
 
     const cleanTaxId = tax_id.replace(/\D/g, '');
@@ -68,13 +73,15 @@ serve(async (req) => {
         }
       },
       back_urls: {
-        success: `${redirect_url}/success`,
-        failure: `${redirect_url}/checkout`,
-        pending: `${redirect_url}/pending`
+        success: `${baseUrl}/success`,
+        failure: `${baseUrl}/checkout`,
+        pending: `${baseUrl}/pending`
       },
       auto_return: "approved",
       external_reference: user.id 
     }
+
+    console.log(`[${functionName}] Enviando payload ao Mercado Pago:`, JSON.stringify(preference));
 
     const response = await fetch("https://api.mercadopago.com/checkout/preferences", {
       method: "POST",
@@ -88,8 +95,8 @@ serve(async (req) => {
     const data = await response.json()
 
     if (!response.ok) {
-      console.error(`[${functionName}] API Mercado Pago:`, data);
-      throw new Error(data.message || "Erro ao criar checkout no Mercado Pago");
+      console.error(`[${functionName}] Erro da API MP:`, data);
+      throw new Error(data.message || "O Mercado Pago não pôde processar a requisição.");
     }
 
     return new Response(JSON.stringify({
