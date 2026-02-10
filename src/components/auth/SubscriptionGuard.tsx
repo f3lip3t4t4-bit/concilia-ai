@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 
 export const SubscriptionGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { subscription, isLoading, user } = useSession();
+  const { subscription, isLoading, user, isSuperAdmin } = useSession();
   const location = useLocation();
 
   if (isLoading) {
@@ -19,23 +19,23 @@ export const SubscriptionGuard: React.FC<{ children: React.ReactNode }> = ({ chi
     );
   }
 
-  // Permitir acesso às páginas de login e checkout sem restrição
+  // Super Admin tem acesso vitalício e não vê banners de trial
+  if (isSuperAdmin) {
+    return <>{children}</>;
+  }
+
   if (location.pathname === "/login" || location.pathname === "/checkout") {
     return <>{children}</>;
   }
 
-  // Lógica de Trial de 7 dias
   const createdAt = user?.created_at ? new Date(user.created_at) : new Date();
   const trialEndsAt = new Date(createdAt);
   trialEndsAt.setDate(trialEndsAt.getDate() + 7);
   
   const isTrialActive = new Date() < trialEndsAt;
-  
-  // Lógica de Acesso Pago (baseada puramente na data de expiração)
   const paidUntilDate = subscription?.paid_until ? new Date(subscription.paid_until) : null;
   const isPaidAccessValid = paidUntilDate ? paidUntilDate > new Date() : false;
 
-  // BLOQUEIO: Só bloqueia se o trial acabou E o acesso pago não é válido
   if (!isTrialActive && !isPaidAccessValid) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
@@ -63,7 +63,6 @@ export const SubscriptionGuard: React.FC<{ children: React.ReactNode }> = ({ chi
     );
   }
 
-  // Se estiver no trial, vamos mostrar um aviso discreto
   const daysRemaining = Math.ceil((trialEndsAt.getTime() - new Date().getTime()) / (1000 * 3600 * 24));
   
   return (

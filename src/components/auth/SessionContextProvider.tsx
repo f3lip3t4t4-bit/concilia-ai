@@ -16,6 +16,7 @@ interface SessionContextType {
   user: User | null;
   subscription: Subscription | null;
   isLoading: boolean;
+  isSuperAdmin: boolean;
   refreshSubscription: () => Promise<void>;
 }
 
@@ -28,6 +29,8 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
+
+  const isSuperAdmin = user?.email === "felipe.saraiva.quadros@gmail.com";
 
   const fetchSubscription = async (userId: string) => {
     try {
@@ -46,7 +49,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   };
 
   useEffect(() => {
-    // 1. Verificar sessão inicial
     const initSession = async () => {
       try {
         const { data: { session: initialSession } } = await supabase.auth.getSession();
@@ -54,20 +56,17 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         setUser(initialSession?.user || null);
         
         if (initialSession?.user) {
-          // Busca assinatura em segundo plano
           fetchSubscription(initialSession.user.id);
         }
       } catch (err) {
         console.error("Erro na inicialização da sessão:", err);
       } finally {
-        // Importante: Libera o loading mesmo se a assinatura ainda não voltou
         setIsLoading(false);
       }
     };
 
     initSession();
 
-    // 2. Ouvir mudanças de estado (Login/Logout)
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
         const hasUserChanged = currentSession?.user?.id !== user?.id;
@@ -81,7 +80,6 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
           setSubscription(null);
         }
         
-        // Garante que o loading seja falso após qualquer evento de auth
         setIsLoading(false);
 
         if (event === "SIGNED_IN") {
@@ -100,7 +98,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
   return (
     <SessionContext.Provider value={{ 
-      session, user, subscription, isLoading, 
+      session, user, subscription, isLoading, isSuperAdmin,
       refreshSubscription: async () => user && await fetchSubscription(user.id) 
     }}>
       {children}
