@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, createContext, useContext } from "react";
+import React, { useState, useEffect, createContext, useContext, useCallback } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import { useNavigate, useLocation } from "react-router-dom";
-import { showSuccess } from "@/utils/toast";
+import { useNavigate } from "react-router-dom";
 
 interface Subscription {
   status: string;
@@ -36,100 +35,95 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const fetchSubscription = async (userId: string) => {
+  const fetchSubscription = useCallback(async (userId: string) => {
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("subscriptions")
         .select("status, paid_until")
         .eq("user_id", userId)
         .maybeSingle();
-      
-      if (error) throw error;
       setSubscription(data);
     } catch (err) {
       console.error("Erro ao buscar assinatura:", err);
-      setSubscription(null);
     }
-  };
+  }, []);
 
-  const fetchProfile = async (userId: string) => {
+  const fetchProfile = useCallback(async (userId: string) => {
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from("profiles")
         .select("first_name, last_name, role")
         .eq("id", userId)
         .maybeSingle();
-      
-      if (error) throw error;
       setProfile(data);
     } catch (err) {
       console.error("Erro ao buscar perfil:", err);
-      setProfile(null);
     }
-  };
+  }, []);
+
+  const loadUserData = useCallback(async (currentUser: User) => {
+    await Promise.all([
+      fetchSubscription(currentUser.id),
+      fetchProfile(currentUser.id)
+    ]);
+  }, [fetchSubscription, fetchProfile]);
 
   useEffect(() => {
-    const initSession = async () => {
+    // 1. Verificar sessão inicial
+    const init = async () => {
       try {
         const { data: { session: initialSession } } = await supabase.auth.getSession();
-        setSession(initialSession);
-        setUser(initialSession?.user || null);
-        
-        if (initialSession?.user) {
-          await Promise.all([
-            fetchSubscription(initialSession.user.id),
-            fetchProfile(initialSession.user.id)
-          ]);
+        if (initialSession) {
+          setSession(initialSession);
+          setUser(initialSession.user);
+          await loadUserData(initialSession.user);
         }
-      } catch (err) {
-        console.error("Erro na inicialização da sessão:", err);
+      } catch (error) {
+        console.error("Erro ao inicializar sessão:", error);
       } finally {
         setIsLoading(false);
       }
     };
 
-    initSession();
+    init();
 
+    // 2. Ouvir mudanças de autenticação
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
-        const hasUserChanged = currentSession?.user?.id !== user?.id;
-        
         setSession(currentSession);
         setUser(currentSession?.user || null);
-        
-        if (currentSession?.user && hasUserChanged) {
-          await Promise.all([
-            fetchSubscription(currentSession.user.id),
-            fetchProfile(currentSession.user.id)
-          ]);
-        } else if (!currentSession) {
+
+        if (event === "SIGNED_IN" && currentSession?.user) {
+          await loadUserData(currentSession.user);
+          setIsLoading(false);
+        } else if (event === "SIGNED_OUT") {
           setSubscription(null);
           setProfile(null);
-        }
-        
-        setIsLoading(false);
-
-        if (event === "SIGNED_IN") {
-          showSuccess("Bem-vindo!");
-          if (location.pathname === "/login") {
-            navigate("/", { replace: true });
-          }
-        } else if (event === "SIGNED_OUT") {
-          navigate("/login", { replace: true });
+          setIsLoading(false);
+          navigate("/login");
+        } else {
+          setIsLoading(false);
         }
       }
     );
 
     return () => authListener.subscription.unsubscribe();
-  }, [navigate, location.pathname, user?.id]);
+  }, [loadUserData, navigate]);
+
+  const refreshSubscription = async () => {
+    if (user) await fetchSubscription(user.id);
+  };
+
+  const refreshProfile = async () => {
+    if (user) await fetchProfile(user.id);
+  };
 
   return (
     <SessionContext.Provider value={{ 
       session, user, subscription, profile, isLoading, 
-      refreshSubscription: async () => user && await fetchSubscription(user.id),
-      refreshProfile: async () => user && await fetchProfile(user.id)
+      refreshSubscription,
+      refreshProfile
     }}>
       {children}
     </SessionContext.Provider>
