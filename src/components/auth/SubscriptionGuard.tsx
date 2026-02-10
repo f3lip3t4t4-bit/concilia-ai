@@ -7,6 +7,8 @@ import { Loader2, ShieldAlert, Sparkles, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 
+const SUPER_ADMIN_EMAIL = "felipe.saraiva.quadros@gmail.com";
+
 export const SubscriptionGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { subscription, profile, isLoading, user } = useSession();
   const location = useLocation();
@@ -19,15 +21,15 @@ export const SubscriptionGuard: React.FC<{ children: React.ReactNode }> = ({ chi
     );
   }
 
-  // BYPASS PARA ADMIN: Se o usuário for admin, ele tem acesso total sempre
-  const isAdmin = profile?.role === 'admin';
+  // BYPASS PARA SUPER ADMIN (E-mail direto ou Role no banco)
+  const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL || profile?.role === 'admin';
 
   // Permitir acesso às páginas de login e checkout sem restrição
   if (location.pathname === "/login" || location.pathname === "/checkout") {
     return <>{children}</>;
   }
 
-  if (isAdmin) {
+  if (isSuperAdmin) {
     return (
       <>
         <div className="bg-indigo-600 text-white text-[10px] font-black uppercase tracking-[0.2em] py-1 text-center flex items-center justify-center gap-2">
