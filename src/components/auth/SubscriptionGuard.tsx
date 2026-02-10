@@ -3,12 +3,12 @@
 import React from "react";
 import { useSession } from "./SessionContextProvider";
 import { Navigate, useLocation } from "react-router-dom";
-import { Loader2, ShieldAlert, Sparkles } from "lucide-react";
+import { Loader2, ShieldAlert, Sparkles, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 
 export const SubscriptionGuard: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { subscription, isLoading, user } = useSession();
+  const { subscription, profile, isLoading, user } = useSession();
   const location = useLocation();
 
   if (isLoading) {
@@ -19,9 +19,24 @@ export const SubscriptionGuard: React.FC<{ children: React.ReactNode }> = ({ chi
     );
   }
 
+  // BYPASS PARA ADMIN: Se o usuário for admin, ele tem acesso total sempre
+  const isAdmin = profile?.role === 'admin';
+
   // Permitir acesso às páginas de login e checkout sem restrição
   if (location.pathname === "/login" || location.pathname === "/checkout") {
     return <>{children}</>;
+  }
+
+  if (isAdmin) {
+    return (
+      <>
+        <div className="bg-indigo-600 text-white text-[10px] font-black uppercase tracking-[0.2em] py-1 text-center flex items-center justify-center gap-2">
+          <ShieldCheck size={12} />
+          Modo Administrador Ativo — Acesso Vitalício Liberado
+        </div>
+        {children}
+      </>
+    );
   }
 
   // Lógica de Trial de 7 dias
@@ -31,7 +46,7 @@ export const SubscriptionGuard: React.FC<{ children: React.ReactNode }> = ({ chi
   
   const isTrialActive = new Date() < trialEndsAt;
   
-  // Lógica de Acesso Pago (baseada puramente na data de expiração)
+  // Lógica de Acesso Pago
   const paidUntilDate = subscription?.paid_until ? new Date(subscription.paid_until) : null;
   const isPaidAccessValid = paidUntilDate ? paidUntilDate > new Date() : false;
 
@@ -63,7 +78,6 @@ export const SubscriptionGuard: React.FC<{ children: React.ReactNode }> = ({ chi
     );
   }
 
-  // Se estiver no trial, vamos mostrar um aviso discreto
   const daysRemaining = Math.ceil((trialEndsAt.getTime() - new Date().getTime()) / (1000 * 3600 * 24));
   
   return (

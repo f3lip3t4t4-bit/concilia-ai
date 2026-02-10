@@ -11,12 +11,20 @@ interface Subscription {
   paid_until: string;
 }
 
+interface Profile {
+  first_name: string | null;
+  last_name: string | null;
+  role: string | null;
+}
+
 interface SessionContextType {
   session: Session | null;
   user: User | null;
   subscription: Subscription | null;
+  profile: Profile | null;
   isLoading: boolean;
   refreshSubscription: () => Promise<void>;
+  refreshProfile: () => Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -25,6 +33,7 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
   const location = useLocation();
@@ -45,8 +54,23 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
     }
   };
 
+  const fetchProfile = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("first_name, last_name, role")
+        .eq("id", userId)
+        .maybeSingle();
+      
+      if (error) throw error;
+      setProfile(data);
+    } catch (err) {
+      console.error("Erro ao buscar perfil:", err);
+      setProfile(null);
+    }
+  };
+
   useEffect(() => {
-    // 1. Verificar sessão inicial
     const initSession = async () => {
       try {
         const { data: { session: initialSession } } = await supabase.auth.getSession();
@@ -54,20 +78,20 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         setUser(initialSession?.user || null);
         
         if (initialSession?.user) {
-          // Busca assinatura em segundo plano
-          fetchSubscription(initialSession.user.id);
+          await Promise.all([
+            fetchSubscription(initialSession.user.id),
+            fetchProfile(initialSession.user.id)
+          ]);
         }
       } catch (err) {
         console.error("Erro na inicialização da sessão:", err);
       } finally {
-        // Importante: Libera o loading mesmo se a assinatura ainda não voltou
         setIsLoading(false);
       }
     };
 
     initSession();
 
-    // 2. Ouvir mudanças de estado (Login/Logout)
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
         const hasUserChanged = currentSession?.user?.id !== user?.id;
@@ -76,12 +100,15 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         setUser(currentSession?.user || null);
         
         if (currentSession?.user && hasUserChanged) {
-          fetchSubscription(currentSession.user.id);
+          await Promise.all([
+            fetchSubscription(currentSession.user.id),
+            fetchProfile(currentSession.user.id)
+          ]);
         } else if (!currentSession) {
           setSubscription(null);
+          setProfile(null);
         }
         
-        // Garante que o loading seja falso após qualquer evento de auth
         setIsLoading(false);
 
         if (event === "SIGNED_IN") {
@@ -100,8 +127,9 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
 
   return (
     <SessionContext.Provider value={{ 
-      session, user, subscription, isLoading, 
-      refreshSubscription: async () => user && await fetchSubscription(user.id) 
+      session, user, subscription, profile, isLoading, 
+      refreshSubscription: async () => user && await fetchSubscription(user.id),
+      refreshProfile: async () => user && await fetchProfile(user.id)
     }}>
       {children}
     </SessionContext.Provider>
