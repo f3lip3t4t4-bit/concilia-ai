@@ -1,29 +1,22 @@
 "use client";
 
-import React, { useState, useEffect, createContext, useContext, useCallback, useRef } from "react";
+import React, { useState, useEffect, createContext, useContext } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
+import { showSuccess } from "@/utils/toast";
 
 interface Subscription {
   status: string;
   paid_until: string;
 }
 
-interface Profile {
-  first_name: string | null;
-  last_name: string | null;
-  role: string | null;
-}
-
 interface SessionContextType {
   session: Session | null;
   user: User | null;
   subscription: Subscription | null;
-  profile: Profile | null;
   isLoading: boolean;
   refreshSubscription: () => Promise<void>;
-  refreshProfile: () => Promise<void>;
 }
 
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
@@ -32,12 +25,11 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const navigate = useNavigate();
-  const mounted = useRef(true);
+  const location = useLocation();
 
-  const fetchSubscription = useCallback(async (userId: string) => {
+  const fetchSubscription = async (userId: string) => {
     try {
       const { data, error } = await supabase
         .from("subscriptions")
@@ -45,112 +37,71 @@ export const SessionContextProvider: React.FC<{ children: React.ReactNode }> = (
         .eq("user_id", userId)
         .maybeSingle();
       
-      if (error) console.warn("Aviso ao buscar assinatura:", error.message);
-      if (mounted.current) setSubscription(data);
+      if (error) throw error;
+      setSubscription(data);
     } catch (err) {
-      console.error("Erro crítico ao buscar assinatura:", err);
+      console.error("Erro ao buscar assinatura:", err);
+      setSubscription(null);
     }
-  }, []);
-
-  const fetchProfile = useCallback(async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("first_name, last_name, role")
-        .eq("id", userId)
-        .maybeSingle();
-      
-      if (error) console.warn("Aviso ao buscar perfil:", error.message);
-      if (mounted.current) setProfile(data);
-    } catch (err) {
-      console.error("Erro crítico ao buscar perfil:", err);
-    }
-  }, []);
-
-  const loadUserData = useCallback(async (currentUser: User) => {
-    // Usamos Promise.allSettled para garantir que o fluxo continue mesmo se uma falhar
-    await Promise.allSettled([
-      fetchSubscription(currentUser.id),
-      fetchProfile(currentUser.id)
-    ]);
-  }, [fetchSubscription, fetchProfile]);
+  };
 
   useEffect(() => {
-    mounted.current = true;
-    
-    // Timeout de segurança: se em 5 segundos não carregar, forçamos o fim do loading
-    const safetyTimeout = setTimeout(() => {
-      if (mounted.current && isLoading) {
-        console.warn("SessionContextProvider: Timeout de segurança atingido. Forçando fim do carregamento.");
-        setIsLoading(false);
-      }
-    }, 5000);
-
-    const init = async () => {
+    // 1. Verificar sessão inicial
+    const initSession = async () => {
       try {
-        const { data: { session: initialSession }, error } = await supabase.auth.getSession();
+        const { data: { session: initialSession } } = await supabase.auth.getSession();
+        setSession(initialSession);
+        setUser(initialSession?.user || null);
         
-        if (error) throw error;
-
-        if (initialSession && mounted.current) {
-          setSession(initialSession);
-          setUser(initialSession.user);
-          await loadUserData(initialSession.user);
+        if (initialSession?.user) {
+          // Busca assinatura em segundo plano
+          fetchSubscription(initialSession.user.id);
         }
-      } catch (error) {
-        console.error("Erro ao inicializar sessão:", error);
+      } catch (err) {
+        console.error("Erro na inicialização da sessão:", err);
       } finally {
-        if (mounted.current) {
-          setIsLoading(false);
-          clearTimeout(safetyTimeout);
-        }
+        // Importante: Libera o loading mesmo se a assinatura ainda não voltou
+        setIsLoading(false);
       }
     };
 
-    init();
+    initSession();
 
+    // 2. Ouvir mudanças de estado (Login/Logout)
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
-        if (!mounted.current) return;
-
+        const hasUserChanged = currentSession?.user?.id !== user?.id;
+        
         setSession(currentSession);
         setUser(currentSession?.user || null);
-
-        if (event === "SIGNED_IN" && currentSession?.user) {
-          setIsLoading(true);
-          await loadUserData(currentSession.user);
-          setIsLoading(false);
-        } else if (event === "SIGNED_OUT") {
+        
+        if (currentSession?.user && hasUserChanged) {
+          fetchSubscription(currentSession.user.id);
+        } else if (!currentSession) {
           setSubscription(null);
-          setProfile(null);
-          setIsLoading(false);
-          navigate("/login");
-        } else if (event === "INITIAL_SESSION" && !currentSession) {
-          setIsLoading(false);
+        }
+        
+        // Garante que o loading seja falso após qualquer evento de auth
+        setIsLoading(false);
+
+        if (event === "SIGNED_IN") {
+          showSuccess("Bem-vindo!");
+          if (location.pathname === "/login") {
+            navigate("/", { replace: true });
+          }
+        } else if (event === "SIGNED_OUT") {
+          navigate("/login", { replace: true });
         }
       }
     );
 
-    return () => {
-      mounted.current = false;
-      authListener.subscription.unsubscribe();
-      clearTimeout(safetyTimeout);
-    };
-  }, [loadUserData, navigate]);
-
-  const refreshSubscription = async () => {
-    if (user) await fetchSubscription(user.id);
-  };
-
-  const refreshProfile = async () => {
-    if (user) await fetchProfile(user.id);
-  };
+    return () => authListener.subscription.unsubscribe();
+  }, [navigate, location.pathname, user?.id]);
 
   return (
     <SessionContext.Provider value={{ 
-      session, user, subscription, profile, isLoading, 
-      refreshSubscription,
-      refreshProfile
+      session, user, subscription, isLoading, 
+      refreshSubscription: async () => user && await fetchSubscription(user.id) 
     }}>
       {children}
     </SessionContext.Provider>

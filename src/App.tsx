@@ -24,9 +24,14 @@ const queryClient = new QueryClient();
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { session, isLoading } = useSession();
 
+  // Log de diagnóstico para ajudar a entender por que não abre no localhost
+  React.useEffect(() => {
+    console.log("[ProtectedRoute] Estado:", { isLoading, hasSession: !!session, path: window.location.pathname });
+  }, [isLoading, session]);
+
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="h-10 w-10 animate-spin text-primary" />
           <p className="text-sm font-medium text-muted-foreground">Verificando acesso...</p>
@@ -47,7 +52,8 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter>
+      {/* Habilitando flags do v7 para remover avisos e melhorar performance */}
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <SessionContextProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />

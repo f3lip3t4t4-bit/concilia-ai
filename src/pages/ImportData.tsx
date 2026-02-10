@@ -138,17 +138,28 @@ const ImportData = () => {
 
   const processInternalSystemRows = (rows: any[][], userId: string, selectedBank: string) => {
     if (rows.length < 2) return [];
+    
+    // Termo de filtro baseado na seleção (SICREDI ou SICOOB)
     const filterTerm = selectedBank.toUpperCase();
+    
+    // Cabeçalho na linha 2 (index 1), dados começam na 3 (index 2)
     return rows.slice(2)
       .map(row => {
+        // Coluna C (index 2) é onde está o nome da Conta/Banco
         const accountName = String(row[2] || "").toUpperCase();
-        if (selectedBank !== "padrao" && !accountName.includes(filterTerm)) return null;
+        
+        // Se um banco específico foi selecionado, filtrar o relatório interno
+        if (selectedBank !== "padrao" && !accountName.includes(filterTerm)) {
+          return null;
+        }
+
         const date = formatDate(row[0]);
-        const subGroup = String(row[5] || "").trim();
-        const history = String(row[7] || "").trim();
+        const subGroup = String(row[5] || "").trim(); // Coluna F (index 5)
+        const history = String(row[7] || "").trim(); // Coluna H (index 7)
         const entrada = parseAmount(row[9]);
         const saida = parseAmount(row[10]);
         const amount = entrada !== 0 ? Math.abs(entrada) : (saida !== 0 ? -Math.abs(saida) : 0);
+        
         if (!date || amount === 0) return null;
         return { user_id: userId, date, description: history, sub_group: subGroup, amount };
       })
@@ -214,16 +225,6 @@ const ImportData = () => {
       .filter(item => item !== null);
   };
 
-  // Função para inserir dados em lotes (chunks)
-  const insertInChunks = async (table: string, data: any[]) => {
-    const CHUNK_SIZE = 100;
-    for (let i = 0; i < data.length; i += CHUNK_SIZE) {
-      const chunk = data.slice(i, i + CHUNK_SIZE);
-      const { error } = await supabase.from(table).insert(chunk);
-      if (error) throw error;
-    }
-  };
-
   const handleUpload = async () => {
     if (!bankStatementFile || !financialEntriesFile || !user) {
       showError("Selecione os arquivos.");
@@ -235,16 +236,19 @@ const ImportData = () => {
       const formattedBankData = processBankRows(rawBankRows, user.id, bankType);
       
       const rawFinRows = await parseExcel(financialEntriesFile);
+      // Passamos o bankType para filtrar o relatório interno automaticamente
       const formattedFinancialData = processInternalSystemRows(rawFinRows, user.id, bankType);
 
       if (formattedBankData.length > 0) {
-        await insertInChunks("bank_statements", formattedBankData);
+        const { error } = await supabase.from("bank_statements").insert(formattedBankData);
+        if (error) throw error;
       }
       if (formattedFinancialData.length > 0) {
-        await insertInChunks("financial_entries", formattedFinancialData);
+        const { error } = await supabase.from("financial_entries").insert(formattedFinancialData);
+        if (error) throw error;
       }
       
-      showSuccess(`Sincronização concluída!`);
+      showSuccess(`Sincronização concluída! Filtrados itens do ${bankType.toUpperCase()}.`);
       navigate("/reconciliation");
     } catch (error: any) {
       showError(`Erro: ${error.message}`);
