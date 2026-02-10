@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap, Search, LayoutDashboard, PartyPopper, Layers, Car } from "lucide-react";
+import { Loader2, ArrowRightLeft, RefreshCw, Trash2, Zap, Search, LayoutDashboard, PartyPopper } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useSession } from "@/components/auth/SessionContextProvider";
 import { showSuccess, showError } from "@/utils/toast";
@@ -36,7 +36,6 @@ const Reconciliation = () => {
   const [matches, setMatches] = useState<any[]>([]);
   const [rules, setRules] = useState<any>({ value_tolerance: 0.05, date_tolerance_days: 1 });
 
-  // OTIMIZAÇÃO: Usando Set para busca O(1) em vez de Array.includes (O(n))
   const [selectedBankIds, setSelectedBankIds] = useState<Set<string>>(new Set());
   const [selectedFinIds, setSelectedFinIds] = useState<Set<string>>(new Set());
   
@@ -69,6 +68,10 @@ const Reconciliation = () => {
     fetchData();
   }, [fetchData]);
 
+  // INDEXAÇÃO PARA BUSCA INSTANTÂNEA (O(1))
+  const bankMap = useMemo(() => new Map(bankEntries.map(e => [e.id, e])), [bankEntries]);
+  const finMap = useMemo(() => new Map(finEntries.map(e => [e.id, e])), [finEntries]);
+
   const matchedBankIds = useMemo(() => new Set(matches.map(m => m.bank_statement_id)), [matches]);
   const matchedFinIds = useMemo(() => new Set(matches.map(m => m.financial_entry_id)), [matches]);
 
@@ -77,12 +80,14 @@ const Reconciliation = () => {
 
   const searchedBank = useMemo(() => {
     const term = searchTermBank.toLowerCase();
-    return term ? filteredBank.filter(e => e.description.toLowerCase().includes(term)) : filteredBank;
+    const result = term ? filteredBank.filter(e => e.description.toLowerCase().includes(term)) : filteredBank;
+    return result.slice(0, 200); // Limite de renderização para evitar lag no DOM
   }, [filteredBank, searchTermBank]);
 
   const searchedFin = useMemo(() => {
     const term = searchTermFin.toLowerCase();
-    return term ? filteredFin.filter(e => e.description.toLowerCase().includes(term)) : filteredFin;
+    const result = term ? filteredFin.filter(e => e.description.toLowerCase().includes(term)) : filteredFin;
+    return result.slice(0, 200); // Limite de renderização para evitar lag no DOM
   }, [filteredFin, searchTermFin]);
 
   const isAllClear = useMemo(() => {
@@ -176,23 +181,24 @@ const Reconciliation = () => {
   const formatCurrency = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
   const formatDateBR = (d: string) => d.split('-').reverse().join('/');
 
+  // CÁLCULO OTIMIZADO USANDO O MAPA (O(N) em vez de O(N*M))
   const bankTotal = useMemo(() => {
     let total = 0;
     selectedBankIds.forEach(id => {
-      const entry = bankEntries.find(e => e.id === id);
+      const entry = bankMap.get(id);
       if (entry) total += entry.amount;
     });
     return total;
-  }, [selectedBankIds, bankEntries]);
+  }, [selectedBankIds, bankMap]);
 
   const finTotal = useMemo(() => {
     let total = 0;
     selectedFinIds.forEach(id => {
-      const entry = finEntries.find(e => e.id === id);
+      const entry = finMap.get(id);
       if (entry) total += entry.amount;
     });
     return total;
-  }, [selectedFinIds, finEntries]);
+  }, [selectedFinIds, finMap]);
 
   if (loading) return <Layout><div className="flex h-full items-center justify-center"><Loader2 className="animate-spin h-10 w-10 text-primary" /></div></Layout>;
 
