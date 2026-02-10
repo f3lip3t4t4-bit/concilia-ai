@@ -74,6 +74,19 @@ const Reconciliation = () => {
   const filteredBank = useMemo(() => bankEntries.filter(e => !matchedBankIds.has(e.id)), [bankEntries, matchedBankIds]);
   const filteredFin = useMemo(() => finEntries.filter(e => !matchedFinIds.has(e.id)), [finEntries, matchedFinIds]);
 
+  // Otimização: Filtrar por busca usando useMemo para evitar lag ao digitar ou selecionar
+  const searchedBank = useMemo(() => {
+    if (!searchTermBank) return filteredBank;
+    const term = searchTermBank.toLowerCase();
+    return filteredBank.filter(e => e.description.toLowerCase().includes(term));
+  }, [filteredBank, searchTermBank]);
+
+  const searchedFin = useMemo(() => {
+    if (!searchTermFin) return filteredFin;
+    const term = searchTermFin.toLowerCase();
+    return filteredFin.filter(e => e.description.toLowerCase().includes(term));
+  }, [filteredFin, searchTermFin]);
+
   const isAllClear = useMemo(() => {
     return !loading && 
            (bankEntries.length > 0 || finEntries.length > 0) && 
@@ -181,7 +194,6 @@ const Reconciliation = () => {
   };
 
   const extractPlate = (text: string) => {
-    // Regex para placa Mercosul ou Antiga: 3 letras, 1 número, 1 letra/número, 2 números
     const match = text.match(/[A-Z]{3}-?\d[A-Z\d]\d{2}/i);
     return match ? match[0].toUpperCase().replace('-', '') : null;
   };
@@ -195,7 +207,6 @@ const Reconciliation = () => {
     const newMatches: any[] = [];
     const usedFinIds = new Set<string>();
 
-    // 1. Agrupar itens do banco por placa
     const bankByPlate: Record<string, Entry[]> = {};
     unBank.forEach(b => {
       const plate = extractPlate(b.description);
@@ -205,7 +216,6 @@ const Reconciliation = () => {
       }
     });
 
-    // 2. Para cada placa, somar e buscar no sistema
     for (const plate in bankByPlate) {
       const entries = bankByPlate[plate];
       const totalBankCents = entries.reduce((acc, curr) => acc + Math.round(curr.amount * 100), 0);
@@ -378,7 +388,7 @@ const Reconciliation = () => {
               <Table>
                 <TableHeader><TableRow><TableHead className="w-10"></TableHead><TableHead>Data</TableHead><TableHead>Descrição</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {filteredBank.filter(e => e.description.toLowerCase().includes(searchTermBank.toLowerCase())).map(e => (
+                  {searchedBank.map(e => (
                     <TableRow key={e.id} className={cn("cursor-pointer", selectedBankIds.includes(e.id) && "bg-blue-50")} onClick={() => toggleBank(e.id)}>
                       <TableCell onClick={ev => ev.stopPropagation()}><Checkbox checked={selectedBankIds.includes(e.id)} onCheckedChange={() => toggleBank(e.id)} /></TableCell>
                       <TableCell className="text-xs">{formatDateBR(e.date)}</TableCell>
@@ -406,7 +416,7 @@ const Reconciliation = () => {
               <Table>
                 <TableHeader><TableRow><TableHead className="w-10"></TableHead><TableHead>Data</TableHead><TableHead>Histórico</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {filteredFin.filter(e => e.description.toLowerCase().includes(searchTermFin.toLowerCase())).map(e => (
+                  {searchedFin.map(e => (
                     <TableRow key={e.id} className={cn("cursor-pointer", selectedFinIds.includes(e.id) && "bg-emerald-50")} onClick={() => toggleFin(e.id)}>
                       <TableCell onClick={ev => ev.stopPropagation()}><Checkbox checked={selectedFinIds.includes(e.id)} onCheckedChange={() => toggleFin(e.id)} /></TableCell>
                       <TableCell className="text-xs">{formatDateBR(e.date)}</TableCell>
