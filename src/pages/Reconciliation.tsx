@@ -74,6 +74,16 @@ const Reconciliation = () => {
   const filteredBank = useMemo(() => bankEntries.filter(e => !matchedBankIds.has(e.id)), [bankEntries, matchedBankIds]);
   const filteredFin = useMemo(() => finEntries.filter(e => !matchedFinIds.has(e.id)), [finEntries, matchedFinIds]);
 
+  const visibleBankEntries = useMemo(() => 
+    filteredBank.filter(e => e.description.toLowerCase().includes(searchTermBank.toLowerCase())),
+    [filteredBank, searchTermBank]
+  );
+
+  const visibleFinEntries = useMemo(() => 
+    filteredFin.filter(e => e.description.toLowerCase().includes(searchTermFin.toLowerCase())),
+    [filteredFin, searchTermFin]
+  );
+
   const isAllClear = useMemo(() => {
     return !loading && 
            (bankEntries.length > 0 || finEntries.length > 0) && 
@@ -104,6 +114,28 @@ const Reconciliation = () => {
 
   const toggleFin = (id: string) => {
     setSelectedFinIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  };
+
+  const toggleSelectAllBank = () => {
+    const allVisibleIds = visibleBankEntries.map(e => e.id);
+    const allSelected = allVisibleIds.every(id => selectedBankIds.includes(id));
+    
+    if (allSelected) {
+      setSelectedBankIds(prev => prev.filter(id => !allVisibleIds.includes(id)));
+    } else {
+      setSelectedBankIds(prev => Array.from(new Set([...prev, ...allVisibleIds])));
+    }
+  };
+
+  const toggleSelectAllFin = () => {
+    const allVisibleIds = visibleFinEntries.map(e => e.id);
+    const allSelected = allVisibleIds.every(id => selectedFinIds.includes(id));
+    
+    if (allSelected) {
+      setSelectedFinIds(prev => prev.filter(id => !allVisibleIds.includes(id)));
+    } else {
+      setSelectedFinIds(prev => Array.from(new Set([...prev, ...allVisibleIds])));
+    }
   };
 
   const handleManualMatch = async () => {
@@ -181,7 +213,6 @@ const Reconciliation = () => {
   };
 
   const extractPlate = (text: string) => {
-    // Regex para placa Mercosul ou Antiga: 3 letras, 1 número, 1 letra/número, 2 números
     const match = text.match(/[A-Z]{3}-?\d[A-Z\d]\d{2}/i);
     return match ? match[0].toUpperCase().replace('-', '') : null;
   };
@@ -195,7 +226,6 @@ const Reconciliation = () => {
     const newMatches: any[] = [];
     const usedFinIds = new Set<string>();
 
-    // 1. Agrupar itens do banco por placa
     const bankByPlate: Record<string, Entry[]> = {};
     unBank.forEach(b => {
       const plate = extractPlate(b.description);
@@ -205,7 +235,6 @@ const Reconciliation = () => {
       }
     });
 
-    // 2. Para cada placa, somar e buscar no sistema
     for (const plate in bankByPlate) {
       const entries = bankByPlate[plate];
       const totalBankCents = entries.reduce((acc, curr) => acc + Math.round(curr.amount * 100), 0);
@@ -317,6 +346,16 @@ const Reconciliation = () => {
   const finTotal = selectedFinIds.reduce((acc, id) => acc + (finEntries.find(e => e.id === id)?.amount || 0), 0);
   const difference = Math.abs(bankTotal - finTotal);
 
+  const isAllBankVisibleSelected = useMemo(() => 
+    visibleBankEntries.length > 0 && visibleBankEntries.every(e => selectedBankIds.includes(e.id)),
+    [visibleBankEntries, selectedBankIds]
+  );
+
+  const isAllFinVisibleSelected = useMemo(() => 
+    visibleFinEntries.length > 0 && visibleFinEntries.every(e => selectedFinIds.includes(e.id)),
+    [visibleFinEntries, selectedFinIds]
+  );
+
   if (loading) return <Layout><div className="flex h-full items-center justify-center"><Loader2 className="animate-spin h-10 w-10 text-primary" /></div></Layout>;
 
   if (isAllClear) {
@@ -367,7 +406,17 @@ const Reconciliation = () => {
             <div className="bg-blue-600 p-6 text-white">
               <div className="flex justify-between items-center mb-4">
                 <CardTitle className="text-xl">Banco</CardTitle>
-                <Badge variant="secondary" className="bg-white/20 text-white">{selectedBankIds.length} selecionados</Badge>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-lg cursor-pointer hover:bg-white/20 transition-colors" onClick={toggleSelectAllBank}>
+                    <Checkbox 
+                      checked={isAllBankVisibleSelected} 
+                      onCheckedChange={toggleSelectAllBank}
+                      className="border-white data-[state=checked]:bg-white data-[state=checked]:text-blue-600"
+                    />
+                    <span className="text-[10px] font-black uppercase tracking-wider">Todos</span>
+                  </div>
+                  <Badge variant="secondary" className="bg-white/20 text-white">{selectedBankIds.length} selecionados</Badge>
+                </div>
               </div>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50" />
@@ -378,7 +427,7 @@ const Reconciliation = () => {
               <Table>
                 <TableHeader><TableRow><TableHead className="w-10"></TableHead><TableHead>Data</TableHead><TableHead>Descrição</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {filteredBank.filter(e => e.description.toLowerCase().includes(searchTermBank.toLowerCase())).map(e => (
+                  {visibleBankEntries.map(e => (
                     <TableRow key={e.id} className={cn("cursor-pointer", selectedBankIds.includes(e.id) && "bg-blue-50")} onClick={() => toggleBank(e.id)}>
                       <TableCell onClick={ev => ev.stopPropagation()}><Checkbox checked={selectedBankIds.includes(e.id)} onCheckedChange={() => toggleBank(e.id)} /></TableCell>
                       <TableCell className="text-xs">{formatDateBR(e.date)}</TableCell>
@@ -395,7 +444,17 @@ const Reconciliation = () => {
             <div className="bg-emerald-600 p-6 text-white">
               <div className="flex justify-between items-center mb-4">
                 <CardTitle className="text-xl">Sistema</CardTitle>
-                <Badge variant="secondary" className="bg-white/20 text-white">{selectedFinIds.length} selecionados</Badge>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 bg-white/10 px-3 py-1.5 rounded-lg cursor-pointer hover:bg-white/20 transition-colors" onClick={toggleSelectAllFin}>
+                    <Checkbox 
+                      checked={isAllFinVisibleSelected} 
+                      onCheckedChange={toggleSelectAllFin}
+                      className="border-white data-[state=checked]:bg-white data-[state=checked]:text-emerald-600"
+                    />
+                    <span className="text-[10px] font-black uppercase tracking-wider">Todos</span>
+                  </div>
+                  <Badge variant="secondary" className="bg-white/20 text-white">{selectedFinIds.length} selecionados</Badge>
+                </div>
               </div>
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 opacity-50" />
@@ -406,7 +465,7 @@ const Reconciliation = () => {
               <Table>
                 <TableHeader><TableRow><TableHead className="w-10"></TableHead><TableHead>Data</TableHead><TableHead>Histórico</TableHead><TableHead className="text-right">Valor</TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {filteredFin.filter(e => e.description.toLowerCase().includes(searchTermFin.toLowerCase())).map(e => (
+                  {visibleFinEntries.map(e => (
                     <TableRow key={e.id} className={cn("cursor-pointer", selectedFinIds.includes(e.id) && "bg-emerald-50")} onClick={() => toggleFin(e.id)}>
                       <TableCell onClick={ev => ev.stopPropagation()}><Checkbox checked={selectedFinIds.includes(e.id)} onCheckedChange={() => toggleFin(e.id)} /></TableCell>
                       <TableCell className="text-xs">{formatDateBR(e.date)}</TableCell>
