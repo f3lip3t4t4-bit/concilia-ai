@@ -21,7 +21,7 @@ const Index = () => {
     totalFin: 0,
     countBank: 0,
     countFin: 0,
-    matches: 0
+    conciliatedBankCount: 0
   });
   const [recentMatches, setRecentMatches] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -47,10 +47,11 @@ const Index = () => {
     if (!user) return;
     setIsLoading(true);
     try {
-      const [bankRes, finRes, matchRes] = await Promise.all([
+      const [bankRes, finRes, matchRes, allMatchesRes] = await Promise.all([
         supabase.from("bank_statements").select("amount").eq("user_id", user.id),
         supabase.from("financial_entries").select("amount").eq("user_id", user.id),
-        supabase.from("reconciliation_matches").select("id, created_at, bank_statement_id, financial_entry_id").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5)
+        supabase.from("reconciliation_matches").select("id, created_at, bank_statement_id, financial_entry_id").eq("user_id", user.id).order("created_at", { ascending: false }).limit(5),
+        supabase.from("reconciliation_matches").select("bank_statement_id").eq("user_id", user.id)
       ]);
 
       if (bankRes.error) throw bankRes.error;
@@ -59,14 +60,16 @@ const Index = () => {
       const totalBank = bankRes.data?.reduce((acc, curr) => acc + Number(curr.amount), 0) || 0;
       const totalFin = finRes.data?.reduce((acc, curr) => acc + Number(curr.amount), 0) || 0;
 
-      const { count } = await supabase.from("reconciliation_matches").select("id", { count: 'exact', head: true }).eq("user_id", user.id);
+      // Calcula quantos itens ÚNICOS do banco estão conciliados
+      const uniqueMatchedBankIds = new Set(allMatchesRes.data?.map(m => m.bank_statement_id).filter(Boolean));
+      const conciliatedBankCount = uniqueMatchedBankIds.size;
 
       setData({
         totalBank,
         totalFin,
         countBank: bankRes.data?.length || 0,
         countFin: finRes.data?.length || 0,
-        matches: count || 0
+        conciliatedBankCount
       });
 
       setRecentMatches(matchRes.data || []);
@@ -93,7 +96,10 @@ const Index = () => {
     }).format(value);
   };
 
-  const recRate = data.countBank > 0 ? Math.round((data.matches / data.countBank) * 100) : 0;
+  // Regra: (Itens Conciliados do Banco / Total de Itens do Banco) * 100
+  const recRate = data.countBank > 0 
+    ? Math.min(100, Math.round((data.conciliatedBankCount / data.countBank) * 100)) 
+    : 0;
 
   if (sessionLoading) {
     return (
@@ -182,7 +188,7 @@ const Index = () => {
               <Progress value={recRate} className="h-4 rounded-full bg-slate-100" />
               <div className="flex justify-between items-center text-xs font-black uppercase tracking-wider text-slate-400">
                 <span>Pendente</span>
-                <span>{data.matches} de {data.countBank}</span>
+                <span>{data.conciliatedBankCount} de {data.countBank}</span>
               </div>
             </div>
           </Card>
